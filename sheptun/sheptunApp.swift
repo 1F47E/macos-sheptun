@@ -24,6 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsManager.shared
     private let logger = Logger.shared
     private var settingsWindow: NSWindow?
+    private let hotkeyManager = HotkeyManager.shared
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.log("Application did finish launching", level: .info)
@@ -41,6 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         setupMenu()
+        registerHotkey()
         
         // Debug output for the API key
         if !settings.openAIKey.isEmpty {
@@ -49,6 +51,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             logger.log("App started with no API key set", level: .warning)
             print("App started with no API key set")
+        }
+    }
+    
+    private func registerHotkey() {
+        // Register the hotkey from settings
+        if settings.hotkeyKeyCode != 0 && settings.hotkeyModifiers != 0 {
+            let success = hotkeyManager.registerHotkey(
+                keyCode: settings.hotkeyKeyCode,
+                modifiers: settings.hotkeyModifiers
+            )
+            
+            if success {
+                logger.log("Registered global hotkey from settings", level: .info)
+            } else {
+                logger.log("Failed to register global hotkey", level: .error)
+            }
+        } else {
+            logger.log("No hotkey defined in settings", level: .warning)
         }
     }
     
@@ -87,6 +107,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             
             // Set the SwiftUI view as the window content
             let settingsView = SettingsView()
+                .onDisappear {
+                    // Re-register hotkey when settings view disappears (settings saved)
+                    self.registerHotkey()
+                }
             window.contentView = NSHostingView(rootView: settingsView)
             
             self.settingsWindow = window
