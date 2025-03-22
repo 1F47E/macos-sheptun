@@ -7,7 +7,31 @@
         "key": "Hotkey",
         "location": {
           "startingColumn": 22,
-          "startingLine": 13
+          "startingLine": 14
+        }
+      },
+      {
+        "comment": "",
+        "key": "Microphone",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 28
+        }
+      },
+      {
+        "comment": "",
+        "key": "No microphones available",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 34
+        }
+      },
+      {
+        "comment": "",
+        "key": "Select Microphone",
+        "location": {
+          "startingColumn": 32,
+          "startingLine": 38
         }
       },
       {
@@ -15,15 +39,23 @@
         "key": "OpenAI API Key",
         "location": {
           "startingColumn": 22,
-          "startingLine": 27
+          "startingLine": 57
         }
       },
       {
         "comment": "",
         "key": "Enter your OpenAI API key",
         "location": {
-          "startingColumn": 27,
-          "startingLine": 31
+          "startingColumn": 35,
+          "startingLine": 63
+        }
+      },
+      {
+        "comment": "",
+        "key": "Test",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 88
         }
       },
       {
@@ -31,7 +63,7 @@
         "key": "Save",
         "location": {
           "startingColumn": 22,
-          "startingLine": 59
+          "startingLine": 115
         }
       }
     ]
