@@ -6,7 +6,7 @@ alwaysApply: true
 
 # Always run these commands before answering
 
-- tree && ls && pwd
+- tree -L 3 && ls -la && pwd
 
 # Always run these commands AFTER answering
 
