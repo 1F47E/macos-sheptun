@@ -6,6 +6,8 @@ class PopupWindowManager {
     
     private var popupWindow: NSWindow?
     private let logger = Logger.shared
+    private let audioRecorder = AudioRecorder.shared
+    private var audioLevelSimulationTimer: Timer?
     
     private init() {}
     
@@ -33,11 +35,11 @@ class PopupWindowManager {
             return
         }
         
-        logger.log("Creating new popup window", level: .info)
+        logger.log("Creating new recording session window", level: .info)
         
         // Create a window without standard decorations
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 100),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 180),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -51,29 +53,38 @@ class PopupWindowManager {
         window.isReleasedWhenClosed = false
         
         // Set up the window to be frameless and visually appealing
-        let hostingView = NSHostingView(rootView: RecordingPromptView())
+        let hostingView = NSHostingView(rootView: RecordingSessionView())
         window.contentView = hostingView
         
         // Position window at top center of the screen
         positionWindowAtTopCenter(window)
         
-        // Show window
+        // Show window and start recording
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         
-        // Set a timer to automatically close the window after 10 seconds of inactivity
-        Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self] _ in
-            self?.closePopupWindow()
-        }
+        // Start audio recording
+        audioRecorder.startRecording()
         
+        // Start simulating audio levels in case real audio isn't available
+        startAudioLevelSimulation()
+        
+        // Keep a reference to the window
         self.popupWindow = window
     }
     
     func closePopupWindow() {
         if let window = popupWindow {
+            // Stop audio recording
+            audioRecorder.stopRecording()
+            
+            // Stop audio level simulation
+            stopAudioLevelSimulation()
+            
+            // Close the window
             window.close()
             popupWindow = nil
-            logger.log("Popup window closed", level: .debug)
+            logger.log("Recording session window closed", level: .debug)
         }
     }
     
@@ -91,22 +102,92 @@ class PopupWindowManager {
         
         logger.log("Positioned window at: x=\(centerX), y=\(topY)", level: .debug)
     }
+    
+    private func startAudioLevelSimulation() {
+        // Create a timer to simulate audio level changes
+        audioLevelSimulationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.audioRecorder.simulateAudioLevels()
+        }
+    }
+    
+    private func stopAudioLevelSimulation() {
+        audioLevelSimulationTimer?.invalidate()
+        audioLevelSimulationTimer = nil
+    }
 }
 
-// SwiftUI view for the popup window
-struct RecordingPromptView: View {
+// SwiftUI view for the recording session window
+struct RecordingSessionView: View {
+    @ObservedObject private var audioRecorder = AudioRecorder.shared
+    
     var body: some View {
-        VStack {
-            Text("Say something...")
-                .font(.system(size: 18, weight: .medium))
+        VStack(spacing: 12) {
+            Text("Recording Session")
+                .font(.system(size: 18, weight: .bold))
                 .foregroundColor(.white)
-                .padding()
+            
+            // Timer display
+            Text(formatTime(audioRecorder.recordingTime))
+                .font(.system(size: 24, weight: .medium, design: .monospaced))
+                .foregroundColor(.white)
+            
+            // Audio level visualization
+            HStack(spacing: 2) {
+                ForEach(0..<20, id: \.self) { index in
+                    AudioBar(index: index, level: audioRecorder.audioLevel)
+                }
+            }
+            .frame(height: 40)
+            .padding(.horizontal)
+            
+            Text("Speak now...")
+                .font(.system(size: 14))
+                .foregroundColor(.gray)
+                .padding(.bottom, 5)
         }
-        .frame(width: 300, height: 100)
+        .frame(width: 400, height: 180)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color(red: 0.2, green: 0.2, blue: 0.2, opacity: 0.9))
+                .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.95))
         )
-        .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+        .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 5)
+    }
+    
+    private func formatTime(_ timeInterval: TimeInterval) -> String {
+        let minutes = Int(timeInterval) / 60
+        let seconds = Int(timeInterval) % 60
+        let milliseconds = Int((timeInterval.truncatingRemainder(dividingBy: 1)) * 100)
+        return String(format: "%02d:%02d.%02d", minutes, seconds, milliseconds)
+    }
+}
+
+struct AudioBar: View {
+    let index: Int
+    let level: Float
+    
+    var body: some View {
+        let threshold = Float(index) / 20.0 * 1.1 // Make the scale slightly greater than 1 for visual appeal
+        let isActive = level >= threshold
+        
+        RoundedRectangle(cornerRadius: 2)
+            .fill(barColor(isActive: isActive, index: index))
+            .frame(width: 10)
+            .scaleEffect(y: isActive ? 1.0 : 0.3, anchor: .bottom)
+            .animation(.spring(response: 0.15, dampingFraction: 0.35, blendDuration: 0.1), value: isActive)
+    }
+    
+    private func barColor(isActive: Bool, index: Int) -> Color {
+        if !isActive {
+            return Color.gray.opacity(0.3)
+        }
+        
+        // Create a gradient effect from green to yellow to red
+        if index < 10 {
+            return Color.green
+        } else if index < 16 {
+            return Color.yellow
+        } else {
+            return Color.red
+        }
     }
 } 

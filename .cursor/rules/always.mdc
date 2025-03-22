@@ -3,6 +3,8 @@ description:
 globs: 
 alwaysApply: true
 ---
+# We are building in swift for MAC OS ONLY, dont use iOS libs!
+
 
 # Always run these commands before answering
 
