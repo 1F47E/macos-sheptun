@@ -65,11 +65,13 @@ class SettingsManager: ObservableObject {
     }
     
     func maskAPIKey(_ key: String) -> String {
-        guard key.count > 10 else { return key.isEmpty ? "Not set" : "***" }
+        guard !key.isEmpty else { return "Not set" }
+        guard key.count > 2 else { return "•••" }
         
-        let prefix = String(key.prefix(5))
-        let suffix = String(key.suffix(5))
-        return "\(prefix)•••••\(suffix)"
+        // Only show first and last letter
+        let first = String(key.prefix(1))
+        let last = String(key.suffix(1))
+        return "\(first)•••••\(last)"
     }
     
     private func encryptString(_ string: String) -> String {

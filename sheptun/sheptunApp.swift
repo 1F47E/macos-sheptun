@@ -74,14 +74,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             
             // Create the window
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
-                styleMask: [.titled, .closable],
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 350),
+                styleMask: [.titled, .closable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
             window.center()
             window.title = "Sheptun Settings"
+            window.titlebarAppearsTransparent = true
             window.isReleasedWhenClosed = false
+            window.backgroundColor = NSColor.windowBackgroundColor
             
             // Set the SwiftUI view as the window content
             let settingsView = SettingsView()

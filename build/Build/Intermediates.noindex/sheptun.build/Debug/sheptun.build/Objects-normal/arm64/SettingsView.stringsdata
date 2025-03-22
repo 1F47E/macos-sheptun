@@ -6,32 +6,32 @@
         "comment": "",
         "key": "Hotkey",
         "location": {
-          "startingColumn": 21,
-          "startingLine": 12
+          "startingColumn": 22,
+          "startingLine": 13
         }
       },
       {
         "comment": "",
         "key": "OpenAI API Key",
         "location": {
-          "startingColumn": 21,
-          "startingLine": 17
+          "startingColumn": 22,
+          "startingLine": 27
         }
       },
       {
         "comment": "",
-        "key": "API Key",
+        "key": "Enter your OpenAI API key",
         "location": {
-          "startingColumn": 35,
-          "startingLine": 20
+          "startingColumn": 27,
+          "startingLine": 31
         }
       },
       {
         "comment": "",
         "key": "Save",
         "location": {
-          "startingColumn": 24,
-          "startingLine": 42
+          "startingColumn": 22,
+          "startingLine": 59
         }
       }
     ]

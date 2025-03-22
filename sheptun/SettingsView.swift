@@ -2,60 +2,70 @@ import SwiftUI
 
 struct SettingsView: View {
     @StateObject private var settings = SettingsManager.shared
-    @State private var isAPIKeyVisible = false
     @State private var apiKeyInput: String = ""
     @Environment(\.dismiss) private var dismiss
     private let logger = Logger.shared
     
     var body: some View {
-        Form {
-            Section("Hotkey") {
+        VStack(spacing: 24) {
+            // Hotkey Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Hotkey")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
                 HotkeyRecorder(keyCode: $settings.hotkeyKeyCode,
                              modifiers: $settings.hotkeyModifiers)
+                    .padding()
+                    .background(Color(.controlBackgroundColor))
+                    .cornerRadius(8)
             }
+            .padding(.horizontal)
             
-            Section("OpenAI API Key") {
-                HStack {
-                    if isAPIKeyVisible {
-                        TextField("API Key", text: $apiKeyInput)
-                            .onChange(of: apiKeyInput) { newValue in
-                                logger.log("API key input changed")
-                            }
-                    } else {
-                        Text(settings.maskAPIKey(apiKeyInput))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .foregroundColor(apiKeyInput.isEmpty ? .secondary : .primary)
+            // API Key Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("OpenAI API Key")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                TextField("Enter your OpenAI API key", text: $apiKeyInput)
+                    .font(.system(size: 16))
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding(.vertical, 4)
+                    .onChange(of: apiKeyInput) { newValue in
+                        logger.log("API key input changed")
                     }
-                    
-                    Button {
-                        isAPIKeyVisible.toggle()
-                        logger.log("API key visibility toggled: \(isAPIKeyVisible ? "visible" : "hidden")")
-                    } label: {
-                        Image(systemName: isAPIKeyVisible ? "eye.slash" : "eye")
-                    }
-                    .buttonStyle(.borderless)
-                }
+                    .padding()
+                    .background(Color(.controlBackgroundColor))
+                    .cornerRadius(8)
             }
+            .padding(.horizontal)
             
-            HStack {
-                Spacer()
-                Button("Save") {
-                    logger.log("Save button pressed")
-                    if !apiKeyInput.isEmpty {
-                        logger.log("Updating API key from input field")
-                        settings.openAIKey = apiKeyInput
-                    } else {
-                        logger.log("API key input is empty, not updating", level: .warning)
-                    }
-                    settings.saveSettings()
-                    logger.log("Settings saved, dismissing settings view")
-                    dismiss()
+            Spacer()
+            
+            // Save Button
+            Button {
+                logger.log("Save button pressed")
+                if !apiKeyInput.isEmpty {
+                    logger.log("Updating API key from input field")
+                    settings.openAIKey = apiKeyInput
+                } else {
+                    logger.log("API key input is empty, not updating", level: .warning)
                 }
-                .keyboardShortcut(.defaultAction)
+                settings.saveSettings()
+                logger.log("Settings saved, dismissing settings view")
+                dismiss()
+            } label: {
+                Text("Save")
+                    .font(.headline)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
             }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .padding(.bottom, 20)
         }
-        .padding()
-        .frame(width: 400, height: 200)
+        .frame(width: 500, height: 350)
         .onAppear {
             logger.log("Settings view appeared")
             apiKeyInput = settings.openAIKey
