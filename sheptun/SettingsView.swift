@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 struct SettingsView: View {
     @StateObject private var settings = SettingsManager.shared
@@ -7,6 +8,9 @@ struct SettingsView: View {
     @State private var isTestingAPIKey: Bool = false
     @State private var apiKeyTestResult: APIKeyTestResult?
     @State private var apiTestTask: Task<Void, Never>? = nil
+    @State private var audioLevel: Float = 0
+    @State private var audioMonitor: AudioLevelMonitor?
+    @State private var audioMonitorError: String? = nil
     @Environment(\.dismiss) private var dismiss
     private let logger = Logger.shared
     
@@ -27,7 +31,7 @@ struct SettingsView: View {
                 HotkeyRecorder(keyCode: $settings.hotkeyKeyCode,
                              modifiers: $settings.hotkeyModifiers)
                     .padding()
-                    .background(Color(.controlBackgroundColor))
+                    .background(Color(NSColor.controlBackgroundColor))
                     .cornerRadius(8)
             }
             .padding(.horizontal)
@@ -52,11 +56,34 @@ struct SettingsView: View {
                         .labelsHidden()
                         .onChange(of: settings.selectedMicrophoneID) { oldValue, newValue in
                             logger.log("Selected microphone changed to ID: \(newValue)")
+                            setupAudioMonitoring()
                         }
+                        
+                        // Audio level indicator
+                        VStack(spacing: 4) {
+                            HStack(spacing: 2) {
+                                ForEach(0..<20, id: \.self) { index in
+                                    Rectangle()
+                                        .fill(barColor(for: index))
+                                        .frame(width: 10, height: 20)
+                                        .cornerRadius(2)
+                            }
+                        }
+                        
+                            if let errorMessage = audioMonitorError {
+                                Text(errorMessage)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            }
+                        }
+                        .padding(.vertical, 8)
                     }
                 }
                 .padding()
-                .background(Color(.controlBackgroundColor))
+                .background(Color(NSColor.controlBackgroundColor))
                 .cornerRadius(8)
             }
             .padding(.horizontal)
@@ -129,7 +156,7 @@ struct SettingsView: View {
                     }
                 }
                 .padding()
-                .background(Color(.controlBackgroundColor))
+                .background(Color(NSColor.controlBackgroundColor))
                 .cornerRadius(8)
             }
             .padding(.horizontal)
@@ -158,7 +185,7 @@ struct SettingsView: View {
             .keyboardShortcut(.defaultAction)
             .padding(.bottom, 20)
         }
-        .frame(width: 500, height: 420) // Slightly increased for possible error message
+        .frame(width: 500, height: 460) // Slightly increased for the audio level meter
         .onAppear {
             logger.log("Settings view appeared")
             apiKeyInput = settings.openAIKey
@@ -186,9 +213,61 @@ struct SettingsView: View {
                     logger.log("No system default, auto-selected first microphone: \(availableMicrophones[0].name)")
                 }
             }
+            
+            // Setup audio level monitoring for the selected microphone
+            setupAudioMonitoring()
         }
         .onDisappear {
             cleanup()
+        }
+    }
+    
+    private func barColor(for index: Int) -> Color {
+        let threshold = Int(audioLevel * 20)
+        if index < threshold {
+            if index < 12 {
+                return .green
+            } else if index < 16 {
+                return .yellow
+            } else {
+                return .red
+            }
+        }
+        return Color(NSColor.lightGray)
+    }
+    
+    private func setupAudioMonitoring() {
+        // Stop previous monitoring if any
+        audioMonitor?.stopMonitoring()
+        
+        // Reset error state
+        audioMonitorError = nil
+        
+        guard !settings.selectedMicrophoneID.isEmpty else { 
+            logger.log("No microphone selected, cannot setup monitoring")
+            audioMonitorError = "No microphone selected"
+            return 
+        }
+        
+        // Create a new monitor with the selected device ID
+        if let deviceID = UInt32(settings.selectedMicrophoneID) {
+            logger.log("Setting up audio monitoring for device ID: \(deviceID)")
+            audioMonitor = AudioLevelMonitor(deviceID: deviceID)
+            audioMonitor?.startMonitoring(
+                levelUpdateHandler: { level in
+                    DispatchQueue.main.async {
+                        self.audioLevel = level
+                    }
+                },
+                errorHandler: { error in
+                    DispatchQueue.main.async {
+                        self.audioMonitorError = error
+                    }
+                }
+            )
+        } else {
+            logger.log("Invalid device ID format for audio monitoring", level: .error)
+            audioMonitorError = "Invalid microphone ID format"
         }
     }
     
@@ -280,5 +359,12 @@ struct SettingsView: View {
     private func cleanup() {
         apiTestTask?.cancel()
         apiTestTask = nil
+        
+        // Stop audio monitoring
+        audioMonitor?.stopMonitoring()
+        audioMonitor = nil
     }
-} 
+}
+
+// The AudioLevelMonitor class has been moved to its own file
+// ... existing code ... 

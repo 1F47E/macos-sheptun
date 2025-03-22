@@ -126,26 +126,27 @@ struct RecordingSessionView: View {
                 .font(.system(size: 18, weight: .bold))
                 .foregroundColor(.white)
             
+            // Debug volume level
+            Text("Volume: \(String(format: "%.2f", audioRecorder.audioLevel))")
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundColor(.gray)
+            
             // Timer display
             Text(formatTime(audioRecorder.recordingTime))
                 .font(.system(size: 24, weight: .medium, design: .monospaced))
                 .foregroundColor(.white)
             
-            // Audio level visualization
-            HStack(spacing: 2) {
-                ForEach(0..<20, id: \.self) { index in
-                    AudioBar(index: index, level: audioRecorder.audioLevel)
-                }
-            }
-            .frame(height: 40)
-            .padding(.horizontal)
+            // Audio visualization with flowing dots
+            FlowingDotsVisualization(audioLevel: audioRecorder.audioLevel)
+                .frame(height: 50)
+                .padding(.horizontal)
             
             Text("Speak now...")
                 .font(.system(size: 14))
                 .foregroundColor(.gray)
                 .padding(.bottom, 5)
         }
-        .frame(width: 400, height: 180)
+        .frame(width: 400, height: 200)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.95))
@@ -161,33 +162,130 @@ struct RecordingSessionView: View {
     }
 }
 
-struct AudioBar: View {
-    let index: Int
-    let level: Float
+// Flowing dots visualization that move from left to right
+struct FlowingDotsVisualization: View {
+    let audioLevel: Float
+    private let dotCount = 40
+    @State private var positions: [CGPoint] = []
+    @State private var timer: Timer?
     
     var body: some View {
-        let threshold = Float(index) / 20.0 * 1.1 // Make the scale slightly greater than 1 for visual appeal
-        let isActive = level >= threshold
-        
-        RoundedRectangle(cornerRadius: 2)
-            .fill(barColor(isActive: isActive, index: index))
-            .frame(width: 10)
-            .scaleEffect(y: isActive ? 1.0 : 0.3, anchor: .bottom)
-            .animation(.spring(response: 0.15, dampingFraction: 0.35, blendDuration: 0.1), value: isActive)
+        GeometryReader { geometry in
+            ZStack {
+                // Background
+                Color.black.opacity(0.3)
+                    .cornerRadius(6)
+                
+                // Draw the flowing dots
+                ForEach(0..<min(positions.count, dotCount), id: \.self) { index in
+                    Circle()
+                        .fill(Color(white: 0.8))
+                        .frame(width: 4, height: 4)
+                        .position(positions[index])
+                        .opacity(0.7)
+                }
+            }
+            .onAppear {
+                // Initialize dot positions
+                initializeDots(in: geometry.size)
+                
+                // Start animation timer
+                timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+                    updateDotPositions(in: geometry.size)
+                }
+            }
+            .onDisappear {
+                timer?.invalidate()
+                timer = nil
+            }
+            .onChange(of: geometry.size) { _, newSize in
+                // Reinitialize if size changes
+                initializeDots(in: newSize)
+            }
+        }
     }
     
-    private func barColor(isActive: Bool, index: Int) -> Color {
-        if !isActive {
-            return Color.gray.opacity(0.3)
+    private func initializeDots(in size: CGSize) {
+        // Create initial positions for dots
+        positions = (0..<dotCount).map { i in
+            let x = CGFloat.random(in: 0...size.width)
+            let y = size.height / 2 + CGFloat.random(in: -10...10)
+            return CGPoint(x: x, y: y)
+        }
+    }
+    
+    private func updateDotPositions(in size: CGSize) {
+        let spread = CGFloat(audioLevel) * (size.height / 2)
+        
+        // Update each dot's position
+        positions = positions.enumerated().map { index, position in
+            var newPos = position
+            
+            // Move dots from left to right
+            newPos.x += 2
+            
+            // If a dot goes off the right edge, reset it to the left
+            if newPos.x > size.width {
+                newPos.x = 0
+                // Randomize vertical position within spread range
+                newPos.y = size.height/2 + CGFloat.random(in: -spread...spread)
+            }
+            
+            // Add a wave effect
+            let wavePhase = Date().timeIntervalSince1970 * 2 + Double(index) * 0.2
+            let waveAmplitude = spread * 0.8
+            let waveFactor = sin(wavePhase) * waveAmplitude
+            
+            // Final position with wave effect
+            newPos.y = size.height/2 + waveFactor
+            
+            return newPos
+        }
+    }
+}
+
+// Animated wave background for the audio visualization
+struct WaveShape: Shape {
+    var audioLevel: Float
+    var phase: Double
+    
+    // For Shape animation
+    var animatableData: AnimatablePair<Float, Double> {
+        get { AnimatablePair(audioLevel, phase) }
+        set {
+            audioLevel = newValue.first
+            phase = newValue.second
+        }
+    }
+    
+    func path(in rect: CGRect) -> Path {
+        let width = rect.width
+        let height = rect.height
+        let midHeight = height / 2
+        
+        // Higher amplitude when audio level is higher
+        let amplitude = CGFloat(audioLevel) * height * 0.4
+        
+        // Number of waves to display
+        let waves = 3
+        
+        var path = Path()
+        path.move(to: CGPoint(x: 0, y: midHeight))
+        
+        for x in stride(from: 0, to: width, by: 1) {
+            let relativeX = x / width
+            
+            // Multiple sine waves with different frequencies
+            let sin1 = sin(relativeX * .pi * 2 * Double(waves) + phase)
+            let sin2 = sin(relativeX * .pi * 4 * Double(waves) + phase * 1.5) * 0.5
+            
+            // Combine waves
+            let combinedSin = (sin1 + sin2) / 1.5
+            
+            let y = midHeight + CGFloat(combinedSin) * amplitude
+            path.addLine(to: CGPoint(x: x, y: y))
         }
         
-        // Create a gradient effect from green to yellow to red
-        if index < 10 {
-            return Color.green
-        } else if index < 16 {
-            return Color.yellow
-        } else {
-            return Color.red
-        }
+        return path
     }
 } 

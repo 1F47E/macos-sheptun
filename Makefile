@@ -1,4 +1,4 @@
-.PHONY: build clean run verbose-build logs tail-logs
+.PHONY: build clean run verbose-build logs-view logs-tail logs-clean logs-crash logs-latest
 
 # Configuration
 PROJECT_NAME = sheptun
@@ -6,7 +6,7 @@ PROJECT_FILE = $(PROJECT_NAME).xcodeproj
 BUILD_DIR = build
 CONFIGURATION = Debug
 SCHEME = $(PROJECT_NAME)
-LOG_FILE = ~/Library/Application\ Support/$(PROJECT_NAME)/debug.log
+LOG_FILE = ~/Library/Containers/com.carsan.sheptun/Data/Documents/Sheptun/debug.log
 
 # Check if xcpretty is installed
 XCPRETTY := $(shell command -v xcpretty 2> /dev/null)
@@ -36,6 +36,7 @@ clean:
 # Run the application
 run: build
 	@echo "Running $(PROJECT_NAME)..."
+	@killall "$(PROJECT_NAME)" 2>/dev/null || true
 	@open $(BUILD_DIR)/Build/Products/$(CONFIGURATION)/$(PROJECT_NAME).app
 
 # Show project schemes
@@ -43,18 +44,38 @@ schemes:
 	@xcodebuild -project $(PROJECT_FILE) -list
 
 # View the log file
-logs:
+logs-view:
 	@echo "Displaying logs..."
-	@cat ~/Library/Containers/$(PROJECT_NAME)/Data/Documents/$(PROJECT_NAME)/debug.log 2>/dev/null || cat ~/Library/Application\ Support/$(PROJECT_NAME)/debug.log 2>/dev/null || echo "Log file not found"
+	@cat $(LOG_FILE) 2>/dev/null || echo "Log file not found at $(LOG_FILE)"
+
+# For backward compatibility
+logs: logs-view
 
 # Follow the log file in real-time
-tail-logs:
+logs-tail:
 	@echo "Following logs in real-time (Ctrl+C to exit)..."
-	@tail -f ~/Library/Containers/$(PROJECT_NAME)/Data/Documents/$(PROJECT_NAME)/debug.log 2>/dev/null || tail -f ~/Library/Application\ Support/$(PROJECT_NAME)/debug.log 2>/dev/null || echo "Log file not found"
+	@tail -f $(LOG_FILE) 2>/dev/null || echo "Log file not found at $(LOG_FILE)"
 
 # Clean logs
-clean-logs:
+logs-clean:
 	@echo "Cleaning logs..."
-	@rm -f ~/Library/Containers/$(PROJECT_NAME)/Data/Documents/$(PROJECT_NAME)/debug.log 2>/dev/null
-	@rm -f ~/Library/Application\ Support/$(PROJECT_NAME)/debug.log 2>/dev/null
-	@echo "Logs cleaned" 
+	@rm -f $(LOG_FILE) 2>/dev/null
+	@echo "Logs cleaned"
+
+# View crash logs
+logs-crash:
+	@echo "Displaying crash logs..."
+	@ls -lt ~/Library/Logs/DiagnosticReports/$(PROJECT_NAME)_*.crash 2>/dev/null || echo "No crash logs found"
+	@echo ""
+	@echo "To view a specific crash log, use: open ~/Library/Logs/DiagnosticReports/FILENAME"
+
+# Open most recent crash log
+logs-latest:
+	@echo "Opening most recent crash log..."
+	@LATEST=$$(ls -t ~/Library/Logs/DiagnosticReports/$(PROJECT_NAME)_*.crash 2>/dev/null | head -1); \
+	if [ -n "$$LATEST" ]; then \
+		echo "Opening: $$LATEST"; \
+		open "$$LATEST"; \
+	else \
+		echo "No crash logs found"; \
+	fi 

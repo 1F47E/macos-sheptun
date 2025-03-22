@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CoreAudio
 
 class AudioRecorder: NSObject, ObservableObject {
     static let shared = AudioRecorder()
@@ -12,6 +13,7 @@ class AudioRecorder: NSObject, ObservableObject {
     private var timer: Timer?
     private var recordingStartTime: Date?
     private let logger = Logger.shared
+    private let settings = SettingsManager.shared
     
     // For audio level monitoring
     private var audioLevelTimer: Timer?
@@ -27,15 +29,46 @@ class AudioRecorder: NSObject, ObservableObject {
             let tempURL = URL(fileURLWithPath: tempDir).appendingPathComponent("temp_recording.m4a")
             
             // Configure audio recording settings
-            let settings = [
+            let recordSettings = [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
                 AVSampleRateKey: 44100,
                 AVNumberOfChannelsKey: 1,
                 AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
             ]
             
+            // Try to set the selected microphone device if available
+            if !self.settings.selectedMicrophoneID.isEmpty, let deviceIDInt = UInt32(self.settings.selectedMicrophoneID) {
+                var deviceID = AudioDeviceID(deviceIDInt)
+                logger.log("Setting recording device to ID: \(deviceID)", level: .info)
+                
+                // On macOS, you can use Core Audio to set the default input device before recording
+                var propertyAddress = AudioObjectPropertyAddress(
+                    mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                
+                // Try to set the default input device
+                let status = AudioObjectSetPropertyData(
+                    AudioObjectID(kAudioObjectSystemObject),
+                    &propertyAddress,
+                    0,
+                    nil,
+                    UInt32(MemoryLayout<AudioDeviceID>.size),
+                    &deviceID
+                )
+                
+                if status != noErr {
+                    logger.log("Warning: Could not set default input device, status: \(status)", level: .warning)
+                } else {
+                    logger.log("Successfully set default input device to ID: \(deviceID)", level: .info)
+                }
+            } else {
+                logger.log("Using system default microphone", level: .info)
+            }
+            
             // Initialize audio recorder
-            audioRecorder = try AVAudioRecorder(url: tempURL, settings: settings)
+            audioRecorder = try AVAudioRecorder(url: tempURL, settings: recordSettings)
             audioRecorder?.delegate = self
             audioRecorder?.isMeteringEnabled = true
             
