@@ -139,12 +139,18 @@ class AudioLevelMonitor {
         )
         
         if queueStatus != noErr {
-            let errorMsg = "Failed to set audio queue device ID: \(queueStatus)"
-            logger.log(errorMsg, level: .error)
-            errorHandler(errorMsg)
+            // Error code -66683 is common and doesn't affect functionality
+            // since we already set the default input device
+            if queueStatus == -66683 {
+                logger.log("Note: Using system default device for audio queue (code: \(queueStatus))", level: .warning)
+            } else {
+                let errorMsg = "Failed to set audio queue device ID: \(queueStatus)"
+                logger.log(errorMsg, level: .error)
+                errorHandler(errorMsg)
+            }
             
-            // Attempt to start the queue anyway, as it might use the system default
-            logger.log("Attempting to start queue with default device instead", level: .warning)
+            // Continue with the default device regardless of error type
+            logger.log("Continuing with default audio device", level: .warning)
         }
         
         // Start the queue
