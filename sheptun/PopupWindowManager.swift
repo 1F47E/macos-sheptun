@@ -66,8 +66,16 @@ class PopupWindowManager {
         // Start audio recording
         audioRecorder.startRecording()
         
-        // Start simulating audio levels in case real audio isn't available
-        startAudioLevelSimulation()
+        // Only fall back to simulation if real audio monitoring fails
+        // We'll wait a bit to see if real monitoring is working
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            if self?.audioRecorder.audioLevel ?? 0 <= 0.01 {
+                self?.startAudioLevelSimulation()
+                self?.logger.log("Falling back to audio level simulation", level: .warning)
+            } else {
+                self?.logger.log("Using real audio levels from microphone", level: .info)
+            }
+        }
         
         // Keep a reference to the window
         self.popupWindow = window

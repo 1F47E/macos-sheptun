@@ -15,8 +15,8 @@ class AudioRecorder: NSObject, ObservableObject {
     private let logger = Logger.shared
     private let settings = SettingsManager.shared
     
-    // For audio level monitoring
-    private var audioLevelTimer: Timer?
+    // Audio level monitoring
+    private var audioMonitor: AudioLevelMonitor?
     
     private override init() {
         super.init()
@@ -63,8 +63,15 @@ class AudioRecorder: NSObject, ObservableObject {
                 } else {
                     logger.log("Successfully set default input device to ID: \(deviceID)", level: .info)
                 }
+                
+                // Set up real-time audio level monitoring using the AudioLevelMonitor 
+                setupAudioMonitoring(deviceID: deviceIDInt)
             } else {
                 logger.log("Using system default microphone", level: .info)
+                // Try to get system default microphone ID for monitoring
+                if let defaultIDStr = settings.getDefaultSystemMicrophoneID(), let defaultID = UInt32(defaultIDStr) {
+                    setupAudioMonitoring(deviceID: defaultID)
+                }
             }
             
             // Initialize audio recorder
@@ -97,6 +104,9 @@ class AudioRecorder: NSObject, ObservableObject {
         // Stop and reset the timer
         stopTimer()
         
+        // Stop audio monitoring
+        stopAudioMonitoring()
+        
         isRecording = false
         
         // Log recording duration
@@ -106,6 +116,35 @@ class AudioRecorder: NSObject, ObservableObject {
         // Reset recording timer display
         recordingTime = 0
         audioLevel = 0
+    }
+    
+    private func setupAudioMonitoring(deviceID: UInt32) {
+        // Stop any existing monitoring
+        stopAudioMonitoring()
+        
+        logger.log("Setting up audio monitoring in recorder for device ID: \(deviceID)", level: .debug)
+        
+        // Create a new audio monitor
+        audioMonitor = AudioLevelMonitor(deviceID: deviceID)
+        
+        // Start monitoring with handlers
+        audioMonitor?.startMonitoring(
+            levelUpdateHandler: { [weak self] level in
+                DispatchQueue.main.async {
+                    self?.audioLevel = level
+                }
+            },
+            errorHandler: { [weak self] error in
+                self?.logger.log("Audio monitoring error: \(error)", level: .warning)
+                // If monitoring fails, fall back to meter-based levels
+                self?.audioLevel = 0
+            }
+        )
+    }
+    
+    private func stopAudioMonitoring() {
+        audioMonitor?.stopMonitoring()
+        audioMonitor = nil
     }
     
     private func startTimer() {
@@ -118,8 +157,10 @@ class AudioRecorder: NSObject, ObservableObject {
                 self.recordingTime = Date().timeIntervalSince(startTime)
             }
             
-            // Update audio level meters
-            self.updateAudioLevels()
+            // Use audioMonitor for levels, but if that's not working, fall back to meters
+            if self.audioLevel <= 0.01 {
+                self.updateAudioLevels()
+            }
         }
     }
     
@@ -131,7 +172,6 @@ class AudioRecorder: NSObject, ObservableObject {
     
     private func updateAudioLevels() {
         guard let recorder = audioRecorder, recorder.isRecording else {
-            audioLevel = 0
             return
         }
         
@@ -150,7 +190,8 @@ class AudioRecorder: NSObject, ObservableObject {
     
     // Method for simulating audio levels in case permissions aren't granted
     func simulateAudioLevels() {
-        if isRecording {
+        // Only use simulation if we don't have real audio levels
+        if isRecording && audioLevel <= 0.01 {
             // Generate random values between 0.1 and 0.8 for a realistic audio simulation
             audioLevel = Float.random(in: 0.1...0.8)
         }
