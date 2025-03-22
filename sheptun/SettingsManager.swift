@@ -50,12 +50,16 @@ class SettingsManager: ObservableObject {
         
         if let savedMicID = defaults.string(forKey: Keys.selectedMicrophoneID) {
             selectedMicrophoneID = savedMicID
-            logger.log("Loaded selected microphone ID: \(savedMicID)")
+            logger.log("Loaded saved microphone ID: \(savedMicID)")
         } else {
-            // Set default microphone if available
-            if let defaultMic = getAvailableMicrophones().first {
-                selectedMicrophoneID = defaultMic.id
-                logger.log("No saved microphone, using first available: \(defaultMic.name)")
+            // Try to get the system default microphone
+            if let defaultMicID = getDefaultSystemMicrophoneID() {
+                selectedMicrophoneID = defaultMicID
+                logger.log("No saved microphone, using system default: \(defaultMicID)")
+            } else if let firstMic = getAvailableMicrophones().first {
+                // Fall back to first available if we can't get the system default
+                selectedMicrophoneID = firstMic.id
+                logger.log("No system default, using first available: \(firstMic.name)")
             } else {
                 logger.log("No microphones available", level: .warning)
             }
@@ -270,6 +274,33 @@ class SettingsManager: ObservableObject {
         } catch {
             logger.log("Decryption error: \(error)", level: .error)
             print("Decryption error: \(error)")
+            return nil
+        }
+    }
+    
+    func getDefaultSystemMicrophoneID() -> String? {
+        var deviceID: AudioDeviceID = 0
+        var propertySize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &propertySize,
+            &deviceID
+        )
+        
+        if status == noErr {
+            logger.log("Default system microphone ID: \(deviceID)")
+            return String(deviceID)
+        } else {
+            logger.log("Error getting default system microphone: \(status)", level: .error)
             return nil
         }
     }

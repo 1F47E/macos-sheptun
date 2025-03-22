@@ -131,10 +131,23 @@ struct SettingsView: View {
             availableMicrophones = settings.getAvailableMicrophones()
             logger.log("Loaded \(availableMicrophones.count) microphones")
             
-            // If no microphone is selected and we have microphones, select the first one
+            // If no microphone is selected but we have a system default, use that
             if settings.selectedMicrophoneID.isEmpty && !availableMicrophones.isEmpty {
-                settings.selectedMicrophoneID = availableMicrophones[0].id
-                logger.log("Auto-selected first microphone: \(availableMicrophones[0].name)")
+                if let defaultID = settings.getDefaultSystemMicrophoneID() {
+                    // Check if the default microphone is in our list
+                    if availableMicrophones.contains(where: { $0.id == defaultID }) {
+                        settings.selectedMicrophoneID = defaultID
+                        logger.log("Auto-selected system default microphone: \(defaultID)")
+                    } else {
+                        // Fall back to first available
+                        settings.selectedMicrophoneID = availableMicrophones[0].id
+                        logger.log("System default not available, selected first microphone: \(availableMicrophones[0].name)")
+                    }
+                } else {
+                    // If no system default is available, select the first one
+                    settings.selectedMicrophoneID = availableMicrophones[0].id
+                    logger.log("No system default, auto-selected first microphone: \(availableMicrophones[0].name)")
+                }
             }
         }
     }
