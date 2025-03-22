@@ -25,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger.shared
     private var settingsWindow: NSWindow?
     private var debugAnimationWindow: NSWindow?
+    private var transcribeDebugWindow: NSWindow?
     private let hotkeyManager = HotkeyManager.shared
     
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -80,12 +81,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Debug Animation", action: #selector(openDebugAnimation), keyEquivalent: "d"))
+        menu.addItem(NSMenuItem(title: "Transcribe Debug", action: #selector(openTranscribeDebug), keyEquivalent: "t"))
         menu.addItem(NSMenuItem(title: "Show Logs", action: #selector(showLogs), keyEquivalent: "l"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         
         statusItem.menu = menu
-        logger.log("Status bar menu configured with Settings, Debug Animation, Show Logs, and Quit options")
+        logger.log("Status bar menu configured with Settings, Debug Animation, Transcribe Debug, Show Logs, and Quit options")
     }
     
     @objc func openSettings() {
@@ -175,6 +177,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Show and activate the window
         if let window = debugAnimationWindow {
             logger.log("Showing debug animation window", level: .debug)
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+    
+    @objc func openTranscribeDebug() {
+        logger.log("Opening transcribe debug window", level: .info)
+        
+        if transcribeDebugWindow == nil {
+            logger.log("Creating transcribe debug window", level: .debug)
+            
+            // Create the window
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.center()
+            window.title = "Transcribe Debug"
+            window.titlebarAppearsTransparent = true
+            window.isReleasedWhenClosed = false
+            window.backgroundColor = NSColor.windowBackgroundColor
+            
+            // Set the SwiftUI view as the window content
+            let transcribeDebugView = TranscribeDebugView()
+            window.contentView = NSHostingView(rootView: transcribeDebugView)
+            
+            self.transcribeDebugWindow = window
+            logger.log("Transcribe debug window created", level: .debug)
+        }
+        
+        // Show and activate the window
+        if let window = transcribeDebugWindow {
+            logger.log("Showing transcribe debug window", level: .debug)
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
