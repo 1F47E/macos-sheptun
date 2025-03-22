@@ -246,19 +246,20 @@ struct FlowingDotsVisualization: View {
     private func updateDotPositions(in size: CGSize) {
         // Make spread more dramatic for better visualization of audio levels
         let minSpread: CGFloat = 3
-        let maxSpread: CGFloat = size.height * 0.6 // Use more of the available height
+        let maxSpread: CGFloat = size.height * 0.8 // Use even more of the available height
         
         // Apply non-linear scaling to make quiet sounds more visible and loud sounds more dramatic
-        let scaledAudioLevel = pow(CGFloat(audioLevel), 0.7) // Slightly less than linear for better low-volume response
+        // More aggressive power curve for more pronounced effect at higher volumes
+        let scaledAudioLevel = pow(CGFloat(audioLevel), 0.5) // Less than linear for better low-volume response
         let spread = minSpread + scaledAudioLevel * (maxSpread - minSpread)
         
         // Update each dot's position
         positions = positions.enumerated().map { index, position in
             var newPos = position
             
-            // Move dots from left to right at varying speeds based on audio level
-            let speedFactor = 1.5 + CGFloat(audioLevel) * 2.0
-            newPos.x += speedFactor
+            // Move dots from left to right at consistent speed
+            let baseSpeed: CGFloat = 2.0
+            newPos.x += baseSpeed
             
             // If a dot goes off the right edge, reset it to the left
             if newPos.x > size.width {
@@ -267,32 +268,46 @@ struct FlowingDotsVisualization: View {
                 newPos.y = size.height/2 + CGFloat.random(in: -spread...spread)
             }
             
-            // Add a wave effect that depends on audio level
-            let wavePhase = Date().timeIntervalSince1970 * 4 + Double(index) * 0.2
+            // Calculate how far across the screen this dot is (0.0 to 1.0)
+            let progressAcrossScreen = newPos.x / size.width
+            
+            // Each dot gets a unique phase offset based on its index
+            let uniqueOffset = Double(index) * 0.5
+            
+            // Wave properties affected by audio level
+            let baseFrequency = 2.0 + Double(audioLevel) * 5.0 // Higher frequency at higher volumes
+            let wavePhase = Date().timeIntervalSince1970 * baseFrequency + uniqueOffset
+            
+            // Each dot gets a unique amplitude modifier to create more varied movement
+            let dotAmplitudeModifier = 0.5 + sin(Double(index) * 0.3) * 0.5
+            
+            // Multiple wave components for more chaotic/organic movement at higher volumes
+            let primaryWave = sin(wavePhase)
+            let secondaryWave = cos(wavePhase * 1.3) * 0.4 * Double(audioLevel)
+            let tertiaryWave = sin(wavePhase * 2.5) * 0.3 * Double(audioLevel * audioLevel)
+            
+            // Combine waves with more components at higher volumes
+            let combinedWave = primaryWave + secondaryWave + tertiaryWave
             
             // More pronounced wave effect at higher audio levels
-            let waveAmplitude = spread * 0.8
+            let volumeImpact = spread * CGFloat(dotAmplitudeModifier)
+            let waveFactor = combinedWave * Double(volumeImpact)
             
-            // Multiple frequencies create more interesting patterns
-            let mainWave = sin(wavePhase) 
-            let secondaryWave = sin(wavePhase * 1.5) * 0.3
-            let combinedWave = mainWave + secondaryWave
+            // Add some random jitter to dots based on audio level
+            let jitter = CGFloat.random(in: -1.0...1.0) * CGFloat(audioLevel) * 3.0
             
-            let waveFactor = combinedWave * waveAmplitude
+            // Calculate target Y position with wave effect and jitter
+            let targetY = size.height/2 + CGFloat(waveFactor) + jitter
             
-            // Final position with wave effect
-            let targetY = size.height/2 + CGFloat(waveFactor)
+            // Faster response for dots when volume is higher
+            let baseAdaptationSpeed: CGFloat = 0.2
+            let volumeAdaptationBoost: CGFloat = 0.6
+            let adaptationSpeed = baseAdaptationSpeed + (CGFloat(audioLevel) * volumeAdaptationBoost)
             
-            // More responsive movement for better visual feedback
-            if newPos.x > 0 && newPos.x < size.width {
-                // Faster interpolation for quick response to audio changes
-                // Higher adaptation speed with higher audio levels for more dramatic effect
-                let adaptationSpeed = 0.4 + CGFloat(audioLevel) * 0.4
-                newPos.y = newPos.y + (targetY - newPos.y) * adaptationSpeed
-            } else {
-                // For new dots just entering, use the target position directly
-                newPos.y = targetY
-            }
+            // Apply movement - dots that are further along their journey (closer to right edge)
+            // get more dramatic vertical movement
+            let verticalMovementFactor = baseAdaptationSpeed + (progressAcrossScreen * adaptationSpeed)
+            newPos.y = newPos.y + (targetY - newPos.y) * verticalMovementFactor
             
             return newPos
         }
