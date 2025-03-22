@@ -69,28 +69,14 @@ struct SettingsView: View {
                 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        if apiKeyInput.isEmpty {
-                            TextField("Enter your OpenAI API key", text: $apiKeyInput)
-                                .font(.system(size: 16))
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .padding(.vertical, 4)
-                                .onChange(of: apiKeyInput) { oldValue, newValue in
-                                    logger.log("API key input changed")
-                                    apiKeyTestResult = nil // Clear previous test result
-                                }
-                        } else {
-                            Text(maskAPIKey(apiKeyInput))
-                                .font(.system(size: 16))
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color(.textBackgroundColor))
-                                .cornerRadius(6)
-                                .onTapGesture {
-                                    // Allow editing when tapped
-                                    // The field remains masked until saved and reopened
-                                }
-                        }
+                        TextField("Enter your OpenAI API key", text: $apiKeyInput)
+                            .font(.system(size: 16))
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .padding(.vertical, 4)
+                            .onChange(of: apiKeyInput) { oldValue, newValue in
+                                logger.log("API key input changed")
+                                apiKeyTestResult = nil // Clear previous test result
+                            }
                         
                         Button {
                             logger.log("Test button pressed")

@@ -46,8 +46,8 @@
         "comment": "",
         "key": "Enter your OpenAI API key",
         "location": {
-          "startingColumn": 39,
-          "startingLine": 73
+          "startingColumn": 35,
+          "startingLine": 72
         }
       },
       {
@@ -55,7 +55,7 @@
         "key": "Testing",
         "location": {
           "startingColumn": 42,
-          "startingLine": 105
+          "startingLine": 91
         }
       },
       {
@@ -63,7 +63,7 @@
         "key": "Test",
         "location": {
           "startingColumn": 42,
-          "startingLine": 108
+          "startingLine": 94
         }
       },
       {
@@ -71,7 +71,7 @@
         "key": "API key is valid",
         "location": {
           "startingColumn": 38,
-          "startingLine": 126
+          "startingLine": 112
         }
       },
       {
@@ -79,7 +79,7 @@
         "key": "Network issue: %@",
         "location": {
           "startingColumn": 38,
-          "startingLine": 131
+          "startingLine": 117
         }
       },
       {
@@ -87,7 +87,7 @@
         "key": "Save",
         "location": {
           "startingColumn": 22,
-          "startingLine": 166
+          "startingLine": 152
         }
       }
     ]
