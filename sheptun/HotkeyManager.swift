@@ -137,9 +137,9 @@ class HotkeyManager {
         if hotkeyID.id == hotKeyID.id {
             logger.log("Hotkey pressed!", level: .info)
             
-            // Show the popup window
+            // Toggle the popup window
             DispatchQueue.main.async {
-                PopupWindowManager.shared.showPopupWindow()
+                PopupWindowManager.shared.togglePopupWindow()
             }
         }
         

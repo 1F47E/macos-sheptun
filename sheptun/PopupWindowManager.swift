@@ -9,6 +9,20 @@ class PopupWindowManager {
     
     private init() {}
     
+    var isWindowVisible: Bool {
+        return popupWindow != nil && popupWindow!.isVisible
+    }
+    
+    func togglePopupWindow() {
+        if isWindowVisible {
+            closePopupWindow()
+            logger.log("Popup window toggled off", level: .info)
+        } else {
+            showPopupWindow()
+            logger.log("Popup window toggled on", level: .info)
+        }
+    }
+    
     func showPopupWindow() {
         // If window already exists, just show it
         if let window = popupWindow {
