@@ -1,0 +1,24 @@
+{
+  "source": "/Users/kass/dev/xcode/sheptun/sheptun/HotkeyRecorder.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Press keys...",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 16
+        }
+      },
+      {
+        "comment": "",
+        "key": "Record",
+        "location": {
+          "startingColumn": 52,
+          "startingLine": 16
+        }
+      }
+    ]
+  },
+  "version": 1
+}
