@@ -12,7 +12,8 @@ alwaysApply: true
 
 # Always run these commands AFTER answering
 
-- make build
+- make build (to verify no errors)
+- make run (to present an app to the user)
 
 
 fix any errors that are present in build process

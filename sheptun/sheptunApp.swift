@@ -24,6 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsManager.shared
     private let logger = Logger.shared
     private var settingsWindow: NSWindow?
+    private var debugAnimationWindow: NSWindow?
     private let hotkeyManager = HotkeyManager.shared
     
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -78,12 +79,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Debug Animation", action: #selector(openDebugAnimation), keyEquivalent: "d"))
         menu.addItem(NSMenuItem(title: "Show Logs", action: #selector(showLogs), keyEquivalent: "l"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         
         statusItem.menu = menu
-        logger.log("Status bar menu configured with Settings, Show Logs, and Quit options")
+        logger.log("Status bar menu configured with Settings, Debug Animation, Show Logs, and Quit options")
     }
     
     @objc func openSettings() {
@@ -141,5 +143,91 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
+    }
+    
+    @objc func openDebugAnimation() {
+        logger.log("Opening debug animation window", level: .info)
+        
+        if debugAnimationWindow == nil {
+            logger.log("Creating debug animation window", level: .debug)
+            
+            // Create the window
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.center()
+            window.title = "Animation Debug"
+            window.titlebarAppearsTransparent = true
+            window.isReleasedWhenClosed = false
+            window.backgroundColor = NSColor.windowBackgroundColor
+            
+            // Set the SwiftUI view as the window content
+            let debugView = DebugAnimationView()
+            window.contentView = NSHostingView(rootView: debugView)
+            
+            self.debugAnimationWindow = window
+            logger.log("Debug animation window created", level: .debug)
+        }
+        
+        // Show and activate the window
+        if let window = debugAnimationWindow {
+            logger.log("Showing debug animation window", level: .debug)
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+}
+
+// MARK: - Debug Animation View
+struct DebugAnimationView: View {
+    @State private var intensity: Float = 0.5
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Animation Debug")
+                .font(.title2)
+                .padding(.top)
+            
+            // Animation module display area
+            ParticleWaveEffect(intensity: intensity)
+                .baseColor(.blue)
+                .accentColor(.purple)
+                .height(200)
+                .padding()
+                .background(Color(.windowBackgroundColor).opacity(0.2))
+                .cornerRadius(12)
+                .padding(.horizontal)
+            
+            // Control panel
+            VStack(spacing: 10) {
+                Text("Intensity: \(String(format: "%.2f", intensity))")
+                    .font(.headline)
+                
+                HStack {
+                    Text("0.0")
+                    Slider(value: $intensity, in: 0...1)
+                        .padding(.horizontal)
+                    Text("1.0")
+                }
+                
+                HStack(spacing: 20) {
+                    Button("0.25") { intensity = 0.25 }
+                    Button("0.5") { intensity = 0.5 }
+                    Button("0.75") { intensity = 0.75 }
+                    Button("1.0") { intensity = 1.0 }
+                }
+            }
+            .padding()
+            .background(Color(.windowBackgroundColor).opacity(0.2))
+            .cornerRadius(12)
+            .padding(.horizontal)
+            
+            Spacer()
+        }
+        .frame(minWidth: 500, minHeight: 400)
     }
 }

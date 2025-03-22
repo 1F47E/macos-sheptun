@@ -144,9 +144,11 @@ struct RecordingSessionView: View {
                 .font(.system(size: 24, weight: .medium, design: .monospaced))
                 .foregroundColor(.white)
             
-            // Audio visualization with flowing dots
-            FlowingDotsVisualization(audioLevel: audioRecorder.audioLevel)
-                .frame(height: 50)
+            // Audio visualization with flowing dots using our new module
+            ParticleWaveEffect(intensity: audioRecorder.audioLevel)
+                .height(50)
+                .baseColor(.blue)
+                .accentColor(.purple)
                 .padding(.horizontal)
             
             Text("Speak now...")
@@ -167,150 +169,6 @@ struct RecordingSessionView: View {
         let seconds = Int(timeInterval) % 60
         let milliseconds = Int((timeInterval.truncatingRemainder(dividingBy: 1)) * 100)
         return String(format: "%02d:%02d.%02d", minutes, seconds, milliseconds)
-    }
-}
-
-// Flowing dots visualization that move from left to right
-struct FlowingDotsVisualization: View {
-    let audioLevel: Float
-    private let dotCount = 40
-    @State private var positions: [CGPoint] = []
-    @State private var timer: Timer?
-    
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Draw the flowing dots
-                ForEach(0..<min(positions.count, dotCount), id: \.self) { index in
-                    Circle()
-                        .fill(dotColor(index: index))
-                        .frame(width: dotSize(index: index), height: dotSize(index: index))
-                        .position(positions[index])
-                        .opacity(0.8)
-                }
-            }
-            .onAppear {
-                // Initialize dot positions
-                initializeDots(in: geometry.size)
-                
-                // Start animation timer - more frequent updates for better responsiveness
-                timer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { _ in
-                    updateDotPositions(in: geometry.size)
-                }
-            }
-            .onDisappear {
-                timer?.invalidate()
-                timer = nil
-            }
-            .onChange(of: geometry.size) { _, newSize in
-                // Reinitialize if size changes
-                initializeDots(in: newSize)
-            }
-        }
-    }
-    
-    // Dynamic dot size based on audio level and position
-    private func dotSize(index: Int) -> CGFloat {
-        let baseSize: CGFloat = 4.0
-        let volumeBoost = CGFloat(audioLevel) * 4.0
-        
-        // Dots near the middle of the wave (by index) can be slightly larger
-        let positionFactor = 1.0 - abs(CGFloat(index % 10) - 5.0) / 5.0
-        
-        return baseSize + (volumeBoost * positionFactor)
-    }
-    
-    // Dynamic color based on audio level
-    private func dotColor(index: Int) -> Color {
-        // Base color gets more intense with higher audio levels
-        let volume = Double(audioLevel)
-        
-        // Create vibrant color variations based on volume
-        let hue = 0.6 - (volume * 0.5) // Transition from blue to purple/red as volume increases
-        let saturation = 0.7 + (volume * 0.3) // More saturated at higher volumes
-        let brightness = 0.7 + (volume * 0.3) // Brighter at higher volumes
-        
-        return Color(hue: hue, saturation: saturation, brightness: brightness)
-    }
-    
-    private func initializeDots(in size: CGSize) {
-        // Create initial positions for dots
-        positions = (0..<dotCount).map { i in
-            let x = CGFloat.random(in: 0...size.width)
-            // When initializing, place all dots close to center line
-            let y = size.height / 2 + CGFloat.random(in: -3...3)
-            return CGPoint(x: x, y: y)
-        }
-    }
-    
-    private func updateDotPositions(in size: CGSize) {
-        // Make spread more dramatic for better visualization of audio levels
-        let minSpread: CGFloat = 3
-        let maxSpread: CGFloat = size.height * 0.8 // Use even more of the available height
-        
-        // Apply non-linear scaling to make quiet sounds more visible and loud sounds more dramatic
-        // More aggressive power curve for more pronounced effect at higher volumes
-        let scaledAudioLevel = pow(CGFloat(audioLevel), 0.5) // Less than linear for better low-volume response
-        let spread = minSpread + scaledAudioLevel * (maxSpread - minSpread)
-        
-        // Update each dot's position
-        positions = positions.enumerated().map { index, position in
-            var newPos = position
-            
-            // Move dots from left to right at consistent speed
-            let baseSpeed: CGFloat = 2.0
-            newPos.x += baseSpeed
-            
-            // If a dot goes off the right edge, reset it to the left
-            if newPos.x > size.width {
-                newPos.x = 0
-                // Randomize vertical position within spread range
-                newPos.y = size.height/2 + CGFloat.random(in: -spread...spread)
-            }
-            
-            // Calculate how far across the screen this dot is (0.0 to 1.0)
-            let progressAcrossScreen = newPos.x / size.width
-            
-            // Each dot gets a unique phase offset based on its index
-            let uniqueOffset = Double(index) * 0.5
-            
-            // Wave properties affected by audio level
-            let baseFrequency = 2.0 + Double(audioLevel) * 5.0 // Higher frequency at higher volumes
-            let wavePhase = Date().timeIntervalSince1970 * baseFrequency + uniqueOffset
-            
-            // Each dot gets a unique amplitude modifier to create more varied movement
-            let dotAmplitudeModifier = 0.5 + sin(Double(index) * 0.3) * 0.5
-            
-            // Multiple wave components for more chaotic/organic movement at higher volumes
-            let primaryWave = sin(wavePhase)
-            let secondaryWave = cos(wavePhase * 1.3) * 0.4 * Double(audioLevel)
-            let tertiaryWave = sin(wavePhase * 2.5) * 0.3 * Double(audioLevel * audioLevel)
-            
-            // Combine waves with more components at higher volumes
-            let combinedWave = primaryWave + secondaryWave + tertiaryWave
-            
-            // More pronounced wave effect at higher audio levels
-            let volumeImpact = spread * CGFloat(dotAmplitudeModifier)
-            let waveFactor = combinedWave * Double(volumeImpact)
-            
-            // Add some random jitter to dots based on audio level
-            let jitter = CGFloat.random(in: -1.0...1.0) * CGFloat(audioLevel) * 3.0
-            
-            // Calculate target Y position with wave effect and jitter
-            let targetY = size.height/2 + CGFloat(waveFactor) + jitter
-            
-            // Faster response for dots when volume is higher
-            let baseAdaptationSpeed: CGFloat = 0.2
-            let volumeAdaptationBoost: CGFloat = 0.6
-            let adaptationSpeed = baseAdaptationSpeed + (CGFloat(audioLevel) * volumeAdaptationBoost)
-            
-            // Apply movement - dots that are further along their journey (closer to right edge)
-            // get more dramatic vertical movement
-            let verticalMovementFactor = baseAdaptationSpeed + (progressAcrossScreen * adaptationSpeed)
-            newPos.y = newPos.y + (targetY - newPos.y) * verticalMovementFactor
-            
-            return newPos
-        }
     }
 }
 
