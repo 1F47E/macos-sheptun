@@ -7,7 +7,7 @@
         "key": "Hotkey",
         "location": {
           "startingColumn": 22,
-          "startingLine": 14
+          "startingLine": 23
         }
       },
       {
@@ -15,7 +15,7 @@
         "key": "Microphone",
         "location": {
           "startingColumn": 22,
-          "startingLine": 28
+          "startingLine": 37
         }
       },
       {
@@ -23,7 +23,7 @@
         "key": "No microphones available",
         "location": {
           "startingColumn": 30,
-          "startingLine": 34
+          "startingLine": 43
         }
       },
       {
@@ -31,7 +31,7 @@
         "key": "Select Microphone",
         "location": {
           "startingColumn": 32,
-          "startingLine": 38
+          "startingLine": 47
         }
       },
       {
@@ -39,23 +39,47 @@
         "key": "OpenAI API Key",
         "location": {
           "startingColumn": 22,
-          "startingLine": 57
+          "startingLine": 66
         }
       },
       {
         "comment": "",
         "key": "Enter your OpenAI API key",
         "location": {
-          "startingColumn": 35,
-          "startingLine": 63
+          "startingColumn": 39,
+          "startingLine": 73
+        }
+      },
+      {
+        "comment": "",
+        "key": "Testing",
+        "location": {
+          "startingColumn": 42,
+          "startingLine": 105
         }
       },
       {
         "comment": "",
         "key": "Test",
         "location": {
-          "startingColumn": 30,
-          "startingLine": 88
+          "startingColumn": 42,
+          "startingLine": 108
+        }
+      },
+      {
+        "comment": "",
+        "key": "API key is valid",
+        "location": {
+          "startingColumn": 38,
+          "startingLine": 126
+        }
+      },
+      {
+        "comment": "",
+        "key": "Network issue: %@",
+        "location": {
+          "startingColumn": 38,
+          "startingLine": 131
         }
       },
       {
@@ -63,7 +87,7 @@
         "key": "Save",
         "location": {
           "startingColumn": 22,
-          "startingLine": 115
+          "startingLine": 166
         }
       }
     ]

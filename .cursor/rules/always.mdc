@@ -1,0 +1,16 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Always run these commands before answering
+
+- tree && ls && pwd
+
+# Always run these commands AFTER answering
+
+- make build
+
+
+fix any errors that are present in build process

@@ -4,8 +4,17 @@ struct SettingsView: View {
     @StateObject private var settings = SettingsManager.shared
     @State private var apiKeyInput: String = ""
     @State private var availableMicrophones: [SettingsManager.MicrophoneDevice] = []
+    @State private var isTestingAPIKey: Bool = false
+    @State private var apiKeyTestResult: APIKeyTestResult?
+    @State private var apiTestTask: Task<Void, Never>? = nil
     @Environment(\.dismiss) private var dismiss
     private let logger = Logger.shared
+    
+    enum APIKeyTestResult {
+        case success
+        case error(String)
+        case networkError(String)
+    }
     
     var body: some View {
         VStack(spacing: 24) {
@@ -58,38 +67,80 @@ struct SettingsView: View {
                     .font(.headline)
                     .foregroundColor(.primary)
                 
-                HStack {
-                    if apiKeyInput.isEmpty {
-                        TextField("Enter your OpenAI API key", text: $apiKeyInput)
-                            .font(.system(size: 16))
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .padding(.vertical, 4)
-                            .onChange(of: apiKeyInput) { oldValue, newValue in
-                                logger.log("API key input changed")
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        if apiKeyInput.isEmpty {
+                            TextField("Enter your OpenAI API key", text: $apiKeyInput)
+                                .font(.system(size: 16))
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .padding(.vertical, 4)
+                                .onChange(of: apiKeyInput) { oldValue, newValue in
+                                    logger.log("API key input changed")
+                                    apiKeyTestResult = nil // Clear previous test result
+                                }
+                        } else {
+                            Text(maskAPIKey(apiKeyInput))
+                                .font(.system(size: 16))
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(.textBackgroundColor))
+                                .cornerRadius(6)
+                                .onTapGesture {
+                                    // Allow editing when tapped
+                                    // The field remains masked until saved and reopened
+                                }
+                        }
+                        
+                        Button {
+                            logger.log("Test button pressed")
+                            testAPIKey()
+                        } label: {
+                            HStack(spacing: 4) {
+                                if isTestingAPIKey {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle())
+                                        .scaleEffect(0.7)
+                                        .frame(width: 16, height: 16)
+                                    Text("Testing")
+                                        .font(.system(size: 14))
+                                } else {
+                                    Text("Test")
+                                        .font(.system(size: 14))
+                                }
                             }
-                    } else {
-                        Text(maskAPIKey(apiKeyInput))
-                            .font(.system(size: 16))
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(.textBackgroundColor))
-                            .cornerRadius(6)
-                            .onTapGesture {
-                                // Allow editing when tapped
-                                // The field remains masked until saved and reopened
-                            }
+                            .frame(minWidth: 70)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(apiKeyInput.isEmpty || isTestingAPIKey)
                     }
                     
-                    Button {
-                        logger.log("Test button pressed")
-                        // Functionality to be added later
-                    } label: {
-                        Text("Test")
-                            .font(.system(size: 14))
+                    // API Key test result
+                    if let result = apiKeyTestResult {
+                        HStack(spacing: 6) {
+                            switch result {
+                            case .success:
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("API key is valid")
+                                    .foregroundColor(.green)
+                            case .networkError(let message):
+                                Image(systemName: "wifi.exclamationmark")
+                                    .foregroundColor(.orange)
+                                Text("Network issue: \(message)")
+                                    .foregroundColor(.orange)
+                                    .font(.system(size: 14))
+                            case .error(let message):
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .foregroundColor(.red)
+                                Text(message)
+                                    .foregroundColor(.red)
+                                    .font(.system(size: 14))
+                            }
+                        }
+                        .padding(.vertical, 4)
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(apiKeyInput.isEmpty)
                 }
                 .padding()
                 .background(Color(.controlBackgroundColor))
@@ -121,7 +172,7 @@ struct SettingsView: View {
             .keyboardShortcut(.defaultAction)
             .padding(.bottom, 20)
         }
-        .frame(width: 500, height: 400) // Increased height to accommodate the new section
+        .frame(width: 500, height: 420) // Slightly increased for possible error message
         .onAppear {
             logger.log("Settings view appeared")
             apiKeyInput = settings.openAIKey
@@ -150,6 +201,81 @@ struct SettingsView: View {
                 }
             }
         }
+        .onDisappear {
+            cleanup()
+        }
+    }
+    
+    private func testAPIKey() {
+        logger.log("testAPIKey() method called", level: .debug)
+        
+        guard !apiKeyInput.isEmpty else {
+            logger.log("Cannot test: API key is empty", level: .warning)
+            return
+        }
+        
+        logger.log("API key not empty, proceeding with test", level: .debug)
+        isTestingAPIKey = true
+        apiKeyTestResult = nil
+        
+        // Cancel any previous task
+        apiTestTask?.cancel()
+        
+        logger.log("Creating async Task to test API key", level: .debug)
+        apiTestTask = Task {
+            logger.log("Inside async Task, about to call OpenAIManager.testAPIKey", level: .debug)
+            let result = await OpenAIManager.shared.testAPIKey(apiKey: apiKeyInput)
+            logger.log("Received result from OpenAIManager.testAPIKey", level: .debug)
+            
+            // Ensure we're not cancelled
+            if !Task.isCancelled {
+                // Switch back to the main thread to update UI
+                await MainActor.run {
+                    logger.log("Inside MainActor.run", level: .debug)
+                    isTestingAPIKey = false
+                    
+                    switch result {
+                    case .success:
+                        logger.log("API key test successful", level: .info)
+                        apiKeyTestResult = .success
+                    case .failure(let error):
+                        logger.log("API key test failed: \(error.localizedDescription)", level: .error)
+                        
+                        // Handle different types of errors with different UI feedback
+                        switch error {
+                        case OpenAIManager.APIError.networkConnectivity(let message):
+                            apiKeyTestResult = .networkError(simplifyNetworkErrorMessage(message))
+                        case OpenAIManager.APIError.invalidAPIKey:
+                            apiKeyTestResult = .error("Invalid API key")
+                        default:
+                            apiKeyTestResult = .error(error.localizedDescription)
+                        }
+                    }
+                }
+            } else {
+                logger.log("Task was cancelled", level: .warning)
+            }
+        }
+        logger.log("Async Task created", level: .debug)
+    }
+    
+    private func simplifyNetworkErrorMessage(_ message: String) -> String {
+        // Extract the most relevant part of network error messages
+        if message.contains("specified hostname could not be found") {
+            return "Could not connect to OpenAI API"
+        } else if message.contains("The Internet connection appears to be offline") {
+            return "Internet connection is offline"
+        } else if message.contains("timed out") {
+            return "Connection timed out"
+        }
+        
+        // Return a shorter version of the original message if it's too long
+        let maxLength = 50
+        if message.count > maxLength {
+            return String(message.prefix(maxLength)) + "..."
+        }
+        
+        return message
     }
     
     private func maskAPIKey(_ key: String) -> String {
@@ -162,5 +288,11 @@ struct SettingsView: View {
         let stars = String(repeating: "*", count: 10)
         
         return prefix + stars + suffix
+    }
+    
+    // Make sure to cancel the task when the view disappears
+    private func cleanup() {
+        apiTestTask?.cancel()
+        apiTestTask = nil
     }
 } 
