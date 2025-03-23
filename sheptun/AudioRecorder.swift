@@ -20,115 +20,152 @@ class AudioRecorder: NSObject, ObservableObject {
     
     // MARK: - Audio Buffer for Streaming
     
+    private var isAudioEngineSetup = false
     private var audioEngine: AVAudioEngine?
     private var inputNode: AVAudioInputNode?
     private var latestAudioBuffer: Data?
     private var audioFormat: AVAudioFormat?
+    
+    // Task management
+    private var setupTask: Task<Void, Never>?
     
     private override init() {
         super.init()
     }
     
     func startRecording() {
-        do {
-            // Set up the audio engine for streaming
-            setupAudioEngineForStreaming()
+        // Cancel any existing setup task
+        setupTask?.cancel()
+        
+        setupTask = Task { [weak self] in
+            guard let self = self else { return }
             
-            // Create a temporary URL for the audio recording
-            let tempDir = NSTemporaryDirectory()
-            let tempURL = URL(fileURLWithPath: tempDir).appendingPathComponent("temp_recording.m4a")
-            
-            // Configure audio recording settings
-            let recordSettings = [
-                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: 44100,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-            ]
-            
-            // Try to set the selected microphone device if available
-            if !self.settings.selectedMicrophoneID.isEmpty, let deviceIDInt = UInt32(self.settings.selectedMicrophoneID) {
-                var deviceID = AudioDeviceID(deviceIDInt)
-                logger.log("Setting recording device to ID: \(deviceID)", level: .info)
+            do {
+                // Check if we're already recording first
+                if self.isRecording {
+                    self.logger.log("Recording is already in progress", level: .warning)
+                    return
+                }
                 
-                // On macOS, you can use Core Audio to set the default input device before recording
-                var propertyAddress = AudioObjectPropertyAddress(
-                    mSelector: kAudioHardwarePropertyDefaultInputDevice,
-                    mScope: kAudioObjectPropertyScopeGlobal,
-                    mElement: kAudioObjectPropertyElementMain
-                )
+                // Set up the audio engine for streaming - done first as it's critical
+                try await self.setupAudioEngineAsync()
                 
-                // Try to set the default input device
-                let status = AudioObjectSetPropertyData(
-                    AudioObjectID(kAudioObjectSystemObject),
-                    &propertyAddress,
-                    0,
-                    nil,
-                    UInt32(MemoryLayout<AudioDeviceID>.size),
-                    &deviceID
-                )
+                // Create a temporary URL for the audio recording
+                let tempDir = NSTemporaryDirectory()
+                let tempURL = URL(fileURLWithPath: tempDir).appendingPathComponent("temp_recording.m4a")
                 
-                if status != noErr {
-                    logger.log("Warning: Could not set default input device, status: \(status)", level: .warning)
+                // Configure audio recording settings
+                let recordSettings = [
+                    AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                    AVSampleRateKey: 44100,
+                    AVNumberOfChannelsKey: 1,
+                    AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+                ]
+                
+                // Try to set the selected microphone device if available
+                if !self.settings.selectedMicrophoneID.isEmpty, let deviceIDInt = UInt32(self.settings.selectedMicrophoneID) {
+                    var deviceID = AudioDeviceID(deviceIDInt)
+                    self.logger.log("Setting recording device to ID: \(deviceID)", level: .info)
+                    
+                    // On macOS, you can use Core Audio to set the default input device before recording
+                    var propertyAddress = AudioObjectPropertyAddress(
+                        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                        mScope: kAudioObjectPropertyScopeGlobal,
+                        mElement: kAudioObjectPropertyElementMain
+                    )
+                    
+                    // Try to set the default input device
+                    let status = AudioObjectSetPropertyData(
+                        AudioObjectID(kAudioObjectSystemObject),
+                        &propertyAddress,
+                        0,
+                        nil,
+                        UInt32(MemoryLayout<AudioDeviceID>.size),
+                        &deviceID
+                    )
+                    
+                    if status != noErr {
+                        self.logger.log("Warning: Could not set default input device, status: \(status)", level: .warning)
+                    } else {
+                        self.logger.log("Successfully set default input device to ID: \(deviceID)", level: .info)
+                    }
+                    
+                    // Set up real-time audio level monitoring using the AudioLevelMonitor 
+                    await MainActor.run {
+                        self.setupAudioMonitoring(deviceID: deviceIDInt)
+                    }
                 } else {
-                    logger.log("Successfully set default input device to ID: \(deviceID)", level: .info)
+                    self.logger.log("Using system default microphone", level: .info)
+                    // Try to get system default microphone ID for monitoring
+                    if let defaultIDStr = self.settings.getDefaultSystemMicrophoneID(), let defaultID = UInt32(defaultIDStr) {
+                        await MainActor.run {
+                            self.setupAudioMonitoring(deviceID: defaultID)
+                        }
+                    }
                 }
                 
-                // Set up real-time audio level monitoring using the AudioLevelMonitor 
-                setupAudioMonitoring(deviceID: deviceIDInt)
-            } else {
-                logger.log("Using system default microphone", level: .info)
-                // Try to get system default microphone ID for monitoring
-                if let defaultIDStr = settings.getDefaultSystemMicrophoneID(), let defaultID = UInt32(defaultIDStr) {
-                    setupAudioMonitoring(deviceID: defaultID)
+                // Initialize audio recorder
+                let recorder = try AVAudioRecorder(url: tempURL, settings: recordSettings)
+                recorder.delegate = self
+                recorder.isMeteringEnabled = true
+                
+                // Update UI and state on main thread
+                await MainActor.run {
+                    self.audioRecorder = recorder
+                    
+                    // Begin recording
+                    if recorder.record() {
+                        self.isRecording = true
+                        self.recordingStartTime = Date()
+                        
+                        // Start the timer for updating UI
+                        self.startTimer()
+                        
+                        self.logger.log("Started audio recording", level: .info)
+                    } else {
+                        self.logger.log("Failed to start audio recording", level: .error)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.logger.log("Audio session error: \(error.localizedDescription)", level: .error)
                 }
             }
-            
-            // Initialize audio recorder
-            audioRecorder = try AVAudioRecorder(url: tempURL, settings: recordSettings)
-            audioRecorder?.delegate = self
-            audioRecorder?.isMeteringEnabled = true
-            
-            // Begin recording
-            if audioRecorder?.record() ?? false {
-                isRecording = true
-                recordingStartTime = Date()
-                
-                // Start the timer for updating UI
-                startTimer()
-                
-                logger.log("Started audio recording", level: .info)
-            } else {
-                logger.log("Failed to start audio recording", level: .error)
-            }
-        } catch {
-            logger.log("Audio session error: \(error.localizedDescription)", level: .error)
         }
     }
     
     func stopRecording() {
-        // Stop the audio engine
-        stopAudioEngine()
+        // Cancel any setup task
+        setupTask?.cancel()
         
-        // Stop recording
-        audioRecorder?.stop()
-        audioRecorder = nil
-        
-        // Stop and reset the timer
-        stopTimer()
-        
-        // Stop audio monitoring
-        stopAudioMonitoring()
-        
-        isRecording = false
-        
-        // Log recording duration
-        let duration = recordingTime
-        logger.log("Stopped audio recording. Duration: \(String(format: "%.2f", duration)) seconds", level: .info)
-        
-        // Reset recording timer display
-        recordingTime = 0
-        audioLevel = 0
+        Task { [weak self] in
+            guard let self = self else { return }
+            
+            await MainActor.run {
+                // Stop the audio engine
+                self.stopAudioEngine()
+                
+                // Stop recording
+                self.audioRecorder?.stop()
+                self.audioRecorder = nil
+                
+                // Stop and reset the timer
+                self.stopTimer()
+                
+                // Stop audio monitoring
+                self.stopAudioMonitoring()
+                
+                self.isRecording = false
+                
+                // Log recording duration
+                let duration = self.recordingTime
+                self.logger.log("Stopped audio recording. Duration: \(String(format: "%.2f", duration)) seconds", level: .info)
+                
+                // Reset recording timer display
+                self.recordingTime = 0
+                self.audioLevel = 0
+            }
+        }
     }
     
     private func setupAudioMonitoring(deviceID: UInt32) {
@@ -210,18 +247,95 @@ class AudioRecorder: NSObject, ObservableObject {
         }
     }
     
+    // Async version of setupAudioEngineForStreaming
+    private func setupAudioEngineAsync() async throws {
+        // Check if already set up and running
+        if isAudioEngineSetup && audioEngine?.isRunning == true {
+            return
+        }
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            do {
+                // Set up audio engine for real-time audio capture
+                audioEngine = AVAudioEngine()
+                inputNode = audioEngine?.inputNode
+                
+                // IMPORTANT: Use the native format of the input node instead of creating a custom format
+                // This prevents format incompatibility errors that can cause crashes
+                guard let inputNode = inputNode else {
+                    logger.log("Failed to get input node", level: .error)
+                    continuation.resume(throwing: NSError(domain: "AudioRecorder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to get input node"]))
+                    return
+                }
+                
+                // Get the native format from the input node
+                let nativeFormat = inputNode.inputFormat(forBus: 0)
+                logger.log("Using native input format: \(nativeFormat.description)", level: .info)
+                
+                // Create a compatible format based on the native format
+                // Keeping sample rate the same as native but ensuring it's mono for speech recognition
+                let pcmFormat = AVAudioFormat(
+                    commonFormat: .pcmFormatInt16,
+                    sampleRate: nativeFormat.sampleRate,
+                    channels: 1,
+                    interleaved: true
+                )
+                
+                audioFormat = pcmFormat
+                
+                guard let format = pcmFormat else {
+                    logger.log("Failed to create audio format", level: .error)
+                    continuation.resume(throwing: NSError(domain: "AudioRecorder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio format"]))
+                    return
+                }
+                
+                // Install tap on input node to capture audio
+                inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
+                    guard let self = self else { return }
+                    
+                    // Convert audio buffer to Data
+                    let channelData = buffer.int16ChannelData?[0]
+                    let channelDataCount = Int(buffer.frameLength)
+                    
+                    if let channelData = channelData {
+                        let data = Data(bytes: channelData, count: channelDataCount * 2) // 2 bytes per Int16
+                        self.latestAudioBuffer = data
+                    }
+                }
+                
+                // Start the audio engine
+                try audioEngine?.start()
+                isAudioEngineSetup = true
+                logger.log("Audio engine started for streaming", level: .info)
+                
+                continuation.resume()
+            } catch {
+                logger.log("Failed to start audio engine: \(error)", level: .error)
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+    
     func setupAudioEngineForStreaming() {
+        // This synchronous version is kept for backward compatibility
         // Set up audio engine for real-time audio capture
         audioEngine = AVAudioEngine()
         inputNode = audioEngine?.inputNode
         
-        // Configure the audio format (16-bit PCM, mono, 16kHz - suitable for speech recognition)
-        let sampleRate: Double = 16000.0
-        let channels: UInt32 = 1
+        guard let inputNode = self.inputNode else {
+            logger.log("Failed to get input node", level: .error)
+            return
+        }
+        
+        // Get the native format from the input node
+        let nativeFormat = inputNode.inputFormat(forBus: 0)
+        logger.log("Using native input format: \(nativeFormat.description)", level: .info)
+        
+        // Create a compatible format based on the native format
         let pcmFormat = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
-            sampleRate: sampleRate,
-            channels: channels,
+            sampleRate: nativeFormat.sampleRate,
+            channels: 1,
             interleaved: true
         )
         
@@ -233,7 +347,7 @@ class AudioRecorder: NSObject, ObservableObject {
         }
         
         // Install tap on input node to capture audio
-        inputNode?.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
             guard let self = self else { return }
             
             // Convert audio buffer to Data
@@ -249,6 +363,7 @@ class AudioRecorder: NSObject, ObservableObject {
         // Start the audio engine
         do {
             try audioEngine?.start()
+            isAudioEngineSetup = true
             logger.log("Audio engine started for streaming", level: .info)
         } catch {
             logger.log("Failed to start audio engine: \(error)", level: .error)
@@ -256,9 +371,10 @@ class AudioRecorder: NSObject, ObservableObject {
     }
     
     func getLatestAudioBuffer() -> Data? {
-        // If audio engine is not set up, set it up now
-        if audioEngine == nil {
-            setupAudioEngineForStreaming()
+        // If audio engine is not set up, we'll need to return nil as we can't set it up synchronously here
+        if audioEngine == nil || !isAudioEngineSetup {
+            logger.log("Audio engine not set up when trying to get latest buffer", level: .warning)
+            return nil
         }
         
         // Return the latest captured audio data
@@ -271,7 +387,22 @@ class AudioRecorder: NSObject, ObservableObject {
         audioEngine = nil
         inputNode = nil
         latestAudioBuffer = nil
+        isAudioEngineSetup = false
         logger.log("Audio engine stopped", level: .info)
+    }
+    
+    // Clean up all resources
+    func cleanup() {
+        setupTask?.cancel()
+        stopAudioEngine()
+        stopAudioMonitoring()
+        stopTimer()
+        
+        if isRecording {
+            audioRecorder?.stop()
+            audioRecorder = nil
+            isRecording = false
+        }
     }
 }
 

@@ -4,191 +4,276 @@ struct TranscribeDebugView: View {
     @StateObject private var viewModel = TranscribeViewModel()
     
     var body: some View {
-        VStack(spacing: 16) {
-            // Title and status section
+        VStack(spacing: 0) {
+            headerView
+            
+            Divider()
+            
+            ZStack {
+                transcriptionView
+                
+                if viewModel.isTranscribing || viewModel.isInitializingRecording {
+                    loadingView
+                }
+            }
+            
+            controlsView
+        }
+        .frame(minWidth: 550, minHeight: 450)
+        .background(Color(.windowBackgroundColor))
+        .onAppear {
+            viewModel.setupForView()
+        }
+        .onDisappear {
+            viewModel.cleanup()
+        }
+    }
+    
+    // Header with title and status
+    private var headerView: some View {
+        HStack {
+            Text("Voice Transcription")
+                .font(.system(size: 22, weight: .semibold))
+            
+            Spacer()
+            
+            statusBadge
+        }
+        .padding()
+    }
+    
+    // Status badge that changes color based on state
+    private var statusBadge: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+            
+            Text(viewModel.statusText)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(statusColor)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(statusColor.opacity(0.1))
+        .cornerRadius(16)
+    }
+    
+    // Color for status changes based on recording/transcribing state
+    private var statusColor: Color {
+        if viewModel.isRecordingAudio {
+            return .red
+        } else if viewModel.isTranscribing || viewModel.isInitializingRecording {
+            return .orange
+        } else if !viewModel.lastError.isEmpty {
+            return .red
+        } else {
+            return .green
+        }
+    }
+    
+    // Audio visualization and model selection
+    private var audioVisualizationView: some View {
+        VStack(spacing: 10) {
             HStack {
-                Text("Transcription Debug")
-                    .font(.title)
-                    .fontWeight(.bold)
+                Text("Audio Level:")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
                 
                 Spacer()
                 
-                // Connection status indicator
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(viewModel.isConnected ? Color.green : (viewModel.isConnecting ? Color.yellow : Color.red))
-                        .frame(width: 10, height: 10)
-                    
-                    Text(viewModel.connectionStatus)
-                        .font(.caption)
-                        .foregroundColor(viewModel.isConnected ? .green : (viewModel.isConnecting ? .yellow : .red))
-                }
+                Text(String(format: "%.2f", viewModel.audioLevel))
+                    .monospacedDigit()
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
             }
-            .padding([.horizontal, .top])
             
-            Divider()
+            ParticleWaveEffect(intensity: viewModel.audioLevel)
+                .baseColor(.blue)
+                .accentColor(.indigo)
+                .height(60)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                )
             
-            // Stats section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Connection Stats")
-                    .font(.headline)
+            HStack {
+                Text("Model:")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
                 
-                Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
-                    GridRow {
-                        Text("WebSocket:")
-                            .gridColumnAlignment(.trailing)
-                        Text(viewModel.connectionStatus)
-                    }
-                    
-                    GridRow {
-                        Text("Audio Status:")
-                            .gridColumnAlignment(.trailing)
-                        Text(viewModel.isRecordingAudio ? "Recording & Sending" : "Stopped")
-                            .foregroundColor(viewModel.isRecordingAudio ? .green : .red)
-                    }
-                    
-                    GridRow {
-                        Text("Model:")
-                            .gridColumnAlignment(.trailing)
-                        Text(viewModel.selectedModel.rawValue)
-                    }
-                    
-                    GridRow {
-                        Text("Audio Level:")
-                            .gridColumnAlignment(.trailing)
-                        HStack {
-                            Text(String(format: "%.2f", viewModel.audioLevel))
-                            ProgressView(value: viewModel.audioLevel)
-                                .frame(width: 100)
+                Spacer()
+                
+                Picker("", selection: $viewModel.selectedModel) {
+                    Text("Whisper").tag(OpenAIManager.TranscriptionModel.whisper1)
+                    Text("GPT-4o").tag(OpenAIManager.TranscriptionModel.gpt4oTranscribe)
+                    Text("GPT-4o Mini").tag(OpenAIManager.TranscriptionModel.gpt4oMiniTranscribe)
+                }
+                .pickerStyle(.menu)
+                .frame(width: 130)
+                .disabled(viewModel.isRecordingAudio || viewModel.isTranscribing || viewModel.isInitializingRecording)
+            }
+            
+            if !viewModel.lastError.isEmpty {
+                errorView
+            }
+        }
+        .padding()
+        .background(Color(.windowBackgroundColor).opacity(0.6))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
+        )
+        .padding(.horizontal)
+        .padding(.top)
+    }
+    
+    // Main transcription content area
+    private var transcriptionView: some View {
+        VStack(spacing: 0) {
+            audioVisualizationView
+            
+            Spacer()
+                .frame(height: 16)
+            
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Text("Transcription")
+                            .font(.headline)
+                        
+                        Spacer()
+                        
+                        if !viewModel.transcriptionText.isEmpty {
+                            Button(action: viewModel.clearTranscription) {
+                                Label("Clear", systemImage: "trash")
+                                    .font(.system(size: 12))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(.secondary)
                         }
                     }
                     
-                    GridRow {
-                        Text("Session Duration:")
-                            .gridColumnAlignment(.trailing)
-                        Text(viewModel.sessionDurationFormatted)
-                    }
-                    
-                    GridRow {
-                        Text("Messages Received:")
-                            .gridColumnAlignment(.trailing)
-                        Text("\(viewModel.messagesReceived)")
-                    }
-                    
-                    GridRow {
-                        Text("Audio Chunks Sent:")
-                            .gridColumnAlignment(.trailing)
-                        Text("\(viewModel.audioChunksSent)")
-                    }
-                    
-                    GridRow {
-                        Text("Last Error:")
-                            .gridColumnAlignment(.trailing)
-                        Text(viewModel.lastError.isEmpty ? "None" : viewModel.lastError)
-                            .foregroundColor(.red)
-                            .lineLimit(1)
-                    }
-                }
-                .padding(.horizontal)
-            }
-            .padding(.horizontal)
-            
-            Divider()
-            
-            // Live animation
-            ParticleWaveEffect(intensity: viewModel.audioLevel)
-                .baseColor(.blue)
-                .accentColor(.purple)
-                .height(60)
-                .padding(.horizontal)
-            
-            // Transcription text display
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Transcription")
-                        .font(.headline)
-                        .padding(.horizontal)
-                    
-                    if viewModel.transcriptionText.isEmpty && !viewModel.isConnected {
-                        Text("Start transcription to see results...")
-                            .italic()
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal)
+                    if viewModel.transcriptionText.isEmpty && !viewModel.isRecordingAudio && !viewModel.isTranscribing && !viewModel.isInitializingRecording {
+                        emptyTranscriptionView
                     } else {
                         Text(viewModel.transcriptionText)
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(.windowBackgroundColor).opacity(0.3))
-                            .cornerRadius(8)
-                            .padding(.horizontal)
+                            .background(Color(.textBackgroundColor).opacity(0.4))
+                            .cornerRadius(10)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                            )
                     }
                 }
+                .padding()
             }
-            .frame(maxHeight: .infinity)
+        }
+    }
+    
+    // Empty state view
+    private var emptyTranscriptionView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "waveform")
+                .font(.system(size: 36))
+                .foregroundColor(.secondary.opacity(0.5))
             
+            Text("Start recording to see transcription")
+                .font(.system(size: 15))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, minHeight: 150)
+        .padding()
+        .background(Color(.textBackgroundColor).opacity(0.2))
+        .cornerRadius(10)
+    }
+    
+    // Error display
+    private var errorView: some View {
+        HStack(alignment: .top) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.red)
+            
+            Text(viewModel.lastError)
+                .font(.system(size: 13))
+                .foregroundColor(.red)
+            
+            Spacer()
+        }
+        .padding(12)
+        .background(Color.red.opacity(0.1))
+        .cornerRadius(8)
+    }
+    
+    // Loading spinner overlay
+    private var loadingView: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .scaleEffect(1.2)
+                .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+            
+            Text(viewModel.isInitializingRecording ? "Initializing audio..." : "Transcribing...")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.secondary)
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.windowBackgroundColor).opacity(0.9))
+                .shadow(color: Color.black.opacity(0.1), radius: 10)
+        )
+    }
+    
+    // Bottom controls
+    private var controlsView: some View {
+        VStack(spacing: 16) {
             Divider()
             
-            // Control panel with separate buttons for connection and audio
-            VStack(spacing: 10) {
-                // First row - connection controls
-                HStack(spacing: 20) {
-                    Button(action: viewModel.toggleConnection) {
-                        HStack {
-                            Image(systemName: viewModel.isConnected ? "wifi.slash" : "wifi")
-                            Text(viewModel.isConnected ? "Disconnect" : "Connect WebSocket")
-                        }
-                        .frame(minWidth: 150)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(viewModel.isConnected ? .orange : .blue)
-                    
-                    Picker("Model", selection: $viewModel.selectedModel) {
-                        Text("GPT-4o").tag(OpenAIManager.TranscriptionModel.gpt4oTranscribe)
-                        Text("GPT-4o Mini").tag(OpenAIManager.TranscriptionModel.gpt4oMiniTranscribe)
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 120)
-                    .disabled(viewModel.isConnected || viewModel.isConnecting)
-                    
-                    Button(action: viewModel.clearTranscription) {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.bordered)
-                }
+            HStack(spacing: 20) {
+                recordButton
                 
-                // Second row - audio controls
-                HStack(spacing: 20) {
-                    Button(action: viewModel.toggleAudioRecording) {
-                        HStack {
-                            Image(systemName: viewModel.isRecordingAudio ? "stop.circle.fill" : "mic.circle.fill")
-                            Text(viewModel.isRecordingAudio ? "Stop Audio" : "Start Audio")
-                        }
-                        .frame(minWidth: 150)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(viewModel.isRecordingAudio ? .red : .green)
-                    .disabled(!viewModel.isConnected)
-                    .keyboardShortcut(.return, modifiers: [])
+                Spacer()
+                
+                HStack(spacing: 8) {
+                    Image(systemName: "clock")
+                        .foregroundColor(.secondary)
                     
-                    // Audio debug button - useful for forcing audio buffer commit
-                    Button(action: viewModel.forceAudioBufferCommit) {
-                        Text("Force Commit")
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Force the current audio buffer to be committed")
-                    .disabled(!viewModel.isRecordingAudio)
-                    
-                    // Combined button for easier use
-                    Button(action: viewModel.toggleAllInOne) {
-                        Text("All-in-One")
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Combined connect and start/stop audio in one button")
+                    Text(viewModel.sessionDurationFormatted)
+                        .font(.system(size: 15, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary)
                 }
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.bottom, 12)
         }
-        .frame(minWidth: 500, minHeight: 400)
+    }
+    
+    // Record/stop button
+    private var recordButton: some View {
+        Button(action: viewModel.toggleRecording) {
+            HStack(spacing: 12) {
+                Image(systemName: viewModel.isRecordingAudio ? "stop.circle.fill" : "mic.circle.fill")
+                    .font(.system(size: 20))
+                
+                Text(viewModel.isRecordingAudio ? "Stop Recording" : "Start Recording")
+                    .font(.system(size: 15, weight: .medium))
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(viewModel.isRecordingAudio ? Color.red : Color.blue)
+            )
+            .foregroundColor(.white)
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isTranscribing || viewModel.isInitializingRecording)
+        .keyboardShortcut(.return, modifiers: [])
     }
 }
 
@@ -202,25 +287,32 @@ class TranscribeViewModel: ObservableObject {
     
     // Published properties for UI updates
     @Published var transcriptionText = ""
-    @Published var isConnected = false
-    @Published var isConnecting = false
     @Published var isRecordingAudio = false
-    @Published var connectionStatus = "Disconnected"
+    @Published var statusText = "Ready"
     @Published var audioLevel: Float = 0.0
     @Published var sessionStartTime: Date?
     @Published var sessionDurationFormatted = "00:00"
-    @Published var messagesReceived = 0
-    @Published var audioChunksSent = 0
     @Published var lastError = ""
-    @Published var selectedModel: OpenAIManager.TranscriptionModel = .gpt4oTranscribe
+    @Published var selectedModel: OpenAIManager.TranscriptionModel = .whisper1
+    @Published var isTranscribing = false
+    @Published var isInitializingRecording = false
+    
+    // Task management
+    private var recordingTask: Task<Void, Never>?
+    private var transcriptionTask: Task<Void, Never>?
     
     // Timer for updating session duration and stats
     private var sessionTimer: Timer?
     private var statsUpdateTimer: Timer?
     
-    init() {
+    func setupForView() {
         setupAudioLevelMonitoring()
         startStatsUpdateTimer()
+        
+        // Reset all states
+        isInitializingRecording = false
+        isTranscribing = false
+        isRecordingAudio = openAIManager.isRecordingAudio
     }
     
     func setupAudioLevelMonitoring() {
@@ -237,20 +329,21 @@ class TranscribeViewModel: ObservableObject {
             
             // Update properties from OpenAIManager
             DispatchQueue.main.async {
-                self.messagesReceived = self.openAIManager.messagesReceived
-                self.audioChunksSent = self.openAIManager.audioChunksSent
                 self.isRecordingAudio = self.openAIManager.isRecordingAudio
                 
-                // Update connection status
-                self.isConnected = self.openAIManager.isConnected
-                self.isConnecting = self.openAIManager.isConnecting
-                
-                if self.isConnected {
-                    self.connectionStatus = "Connected"
-                } else if self.isConnecting {
-                    self.connectionStatus = "Connecting..."
+                // Update status text
+                if self.isInitializingRecording {
+                    self.statusText = "Initializing..."
+                } else if self.isRecordingAudio {
+                    self.statusText = "Recording"
+                } else if self.isTranscribing {
+                    self.statusText = "Transcribing..."
+                } else if !self.lastError.isEmpty {
+                    self.statusText = "Error"
+                } else if !self.transcriptionText.isEmpty {
+                    self.statusText = "Completed"
                 } else {
-                    self.connectionStatus = "Disconnected"
+                    self.statusText = "Ready"
                 }
                 
                 // Check if there's an error from OpenAIManager
@@ -262,183 +355,143 @@ class TranscribeViewModel: ObservableObject {
         }
     }
     
-    // Combined function for backward compatibility
-    func toggleTranscription() {
-        toggleAllInOne()
-    }
-    
-    // All-in-one function that both connects and starts audio
-    func toggleAllInOne() {
-        if isConnected {
-            if isRecordingAudio {
-                // If connected and recording, stop everything
-                disconnectFromWebSocket()
-            } else {
-                // If connected but not recording, start audio
-                startAudioRecording()
-            }
-        } else {
-            // If not connected, connect to WebSocket
-            connectToWebSocket()
-        }
-    }
-    
-    // Toggle just the WebSocket connection
-    func toggleConnection() {
-        if isConnected {
-            disconnectFromWebSocket()
-        } else {
-            connectToWebSocket()
-        }
-    }
-    
-    // Toggle just the audio recording
-    func toggleAudioRecording() {
+    // Toggle recording state
+    func toggleRecording() {
         if isRecordingAudio {
-            stopAudioRecording()
+            stopRecordingAndTranscribe()
         } else {
-            startAudioRecording()
+            startRecording()
         }
     }
     
-    // Connect to WebSocket only
-    func connectToWebSocket() {
-        guard !isConnecting && !isConnected else { return }
-        
-        isConnecting = true
-        connectionStatus = "Connecting..."
-        lastError = ""
-        
-        logger.log("Connecting to WebSocket", level: .info)
-        
-        // Set timeout timer to prevent hanging
-        let timeoutTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
-            guard let self = self, self.isConnecting else { return }
-            
-            DispatchQueue.main.async {
-                self.isConnecting = false
-                self.connectionStatus = "Error: Connection timeout"
-                self.lastError = "Connection timed out after 10 seconds"
-                self.logger.log("WebSocket connection timed out", level: .error)
-                self.openAIManager.stopTranscription()
-            }
-        }
+    // Start recording
+    func startRecording() {
+        guard !isRecordingAudio && !isInitializingRecording && !isTranscribing else { return }
         
         // Get OpenAI API key from settings
         let apiKey = settingsManager.openAIKey
         
         guard !apiKey.isEmpty else {
-            isConnecting = false
-            connectionStatus = "Error: No API Key"
+            statusText = "Error: No API Key"
             lastError = "API key not configured in settings"
-            logger.log("Cannot connect - API key not configured", level: .error)
+            logger.log("Cannot start recording - API key not configured", level: .error)
             return
         }
         
-        // Start session timer
-        sessionStartTime = Date()
-        startSessionTimer()
+        // Clear previous error
+        lastError = ""
         
-        // Connect to WebSocket
-        Task {
+        // Set initializing state
+        DispatchQueue.main.async {
+            self.isInitializingRecording = true
+            self.statusText = "Initializing..."
+        }
+        
+        // Cancel any existing task
+        recordingTask?.cancel()
+        
+        // Start recording in a background task
+        recordingTask = Task { [weak self] in
+            guard let self = self else { return }
+            
             do {
-                logger.log("Starting WebSocket connection", level: .info)
+                // Start session timer
+                DispatchQueue.main.async {
+                    self.sessionStartTime = Date()
+                    self.startSessionTimer()
+                }
                 
-                await openAIManager.connectToWebSocketOnly(
-                    deviceID: "default",
-                    model: selectedModel
-                )
+                self.logger.log("Starting audio recording", level: .info)
                 
-                // Setup transcription callback
-                openAIManager.transcriptionCallback = { [weak self] text, isFinal in
-                    guard let self = self else { return }
+                // Get the microphone device ID
+                let deviceID = self.settingsManager.selectedMicrophoneID.isEmpty ? 
+                             "default" : self.settingsManager.selectedMicrophoneID
+                
+                // Start recording through OpenAIManager
+                self.openAIManager.startRecording(deviceID: deviceID)
+                
+                // Wait a small amount of time to check if recording actually started
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                
+                // Update state on main thread when recording has started
+                await MainActor.run {
+                    self.isInitializingRecording = false
                     
-                    DispatchQueue.main.async {
-                        timeoutTimer.invalidate()  // Cancel timeout timer when we get a response
-                        
-                        if isFinal {
-                            // For final transcriptions, append with a new line
-                            if !self.transcriptionText.isEmpty {
-                                self.transcriptionText.append("\n")
-                            }
-                            self.transcriptionText.append(text)
-                            self.logger.log("Final transcription received: \(text)", level: .info)
-                        } else {
-                            // For partial transcriptions, replace the last line
-                            let lines = self.transcriptionText.components(separatedBy: "\n")
-                            if lines.count > 0 {
-                                var newLines = lines
-                                if newLines.count > 1 {
-                                    // Keep all but the last line
-                                    newLines = Array(lines.dropLast())
-                                    self.transcriptionText = newLines.joined(separator: "\n")
-                                    self.transcriptionText.append("\n")
-                                } else {
-                                    // If there's only one line, clear it
-                                    self.transcriptionText = ""
-                                }
-                            }
-                            self.transcriptionText.append(text)
-                            self.logger.log("Partial transcription received: \(text)", level: .debug)
-                        }
+                    if self.openAIManager.isRecordingAudio {
+                        self.logger.log("Recording started successfully", level: .info)
+                    } else {
+                        self.lastError = self.openAIManager.lastError ?? "Failed to start recording"
+                        self.logger.log("Failed to start recording: \(self.lastError)", level: .error)
                     }
                 }
             } catch {
-                DispatchQueue.main.async {
-                    timeoutTimer.invalidate()
-                    self.isConnecting = false
-                    self.connectionStatus = "Error: \(error.localizedDescription)"
-                    self.lastError = error.localizedDescription
-                    self.logger.log("Error connecting to WebSocket: \(error)", level: .error)
+                await MainActor.run {
+                    self.isInitializingRecording = false
+                    self.lastError = "Audio initialization error: \(error.localizedDescription)"
+                    self.logger.log("Audio initialization error: \(error)", level: .error)
                 }
             }
         }
     }
     
-    // Start audio recording and sending
-    func startAudioRecording() {
-        guard isConnected && !isRecordingAudio else {
-            if !isConnected {
-                lastError = "Cannot start audio: not connected"
-                logger.log("Cannot start audio: not connected to WebSocket", level: .warning)
-            }
-            return
-        }
-        
-        logger.log("Starting audio recording", level: .info)
-        openAIManager.startAudioTransmission(deviceID: "default")
-    }
-    
-    // Stop audio recording but keep connection
-    func stopAudioRecording() {
+    // Stop recording and transcribe
+    func stopRecordingAndTranscribe() {
         guard isRecordingAudio else { return }
         
-        logger.log("Stopping audio recording", level: .info)
-        openAIManager.stopAudioTransmission()
-    }
-    
-    // Force audio buffer commit (for debugging)
-    func forceAudioBufferCommit() {
-        guard isConnected && isRecordingAudio else { return }
+        logger.log("Stopping recording and starting transcription", level: .info)
         
-        logger.log("Forcing audio buffer commit", level: .info)
-        openAIManager.commitAudioBuffer()
-    }
-    
-    // Disconnect from WebSocket
-    func disconnectFromWebSocket() {
-        logger.log("Disconnecting from WebSocket", level: .info)
-        openAIManager.stopTranscription()
-        audioRecorder.stopRecording()
-        stopSessionTimer()
-        isConnected = false
-        isConnecting = false
-        isRecordingAudio = false
-        connectionStatus = "Disconnected"
+        // Update UI immediately
+        DispatchQueue.main.async {
+            self.isTranscribing = true
+            self.statusText = "Transcribing..."
+        }
+        
+        let apiKey = settingsManager.openAIKey
+        let model = selectedModel
+        
+        // Cancel any existing tasks
+        transcriptionTask?.cancel()
+        
+        // Stop recording and transcribe in a background task
+        transcriptionTask = Task { [weak self] in
+            guard let self = self else { return }
+            
+            // Stop recording and transcribe
+            self.openAIManager.stopRecordingAndTranscribe(
+                apiKey: apiKey,
+                model: model,
+                prompt: "",
+                language: ""
+            ) { [weak self] result in
+                guard let self = self else { return }
+                
+                DispatchQueue.main.async {
+                    self.isTranscribing = false
+                    
+                    switch result {
+                    case .success(let text):
+                        if !self.transcriptionText.isEmpty {
+                            self.transcriptionText.append("\n")
+                        }
+                        self.transcriptionText.append(text)
+                        self.logger.log("Transcription completed: \(text)", level: .info)
+                        self.statusText = "Completed"
+                        
+                    case .failure(let error):
+                        self.lastError = error.localizedDescription
+                        self.logger.log("Transcription error: \(error)", level: .error)
+                        self.statusText = "Error"
+                    }
+                    
+                    self.stopSessionTimer()
+                }
+            }
+        }
     }
     
     func clearTranscription() {
         transcriptionText = ""
+        lastError = ""
     }
     
     private func startSessionTimer() {
@@ -457,12 +510,23 @@ class TranscribeViewModel: ObservableObject {
         sessionTimer?.invalidate()
         sessionTimer = nil
         sessionStartTime = nil
+        sessionDurationFormatted = "00:00"
+    }
+    
+    func cleanup() {
+        // Cancel all tasks
+        recordingTask?.cancel()
+        transcriptionTask?.cancel()
+        
+        // Stop timers
+        sessionTimer?.invalidate()
+        statsUpdateTimer?.invalidate()
+        
+        // Stop all operations
+        openAIManager.stopTranscription()
     }
     
     deinit {
-        stopAudioRecording()
-        disconnectFromWebSocket()
-        sessionTimer?.invalidate()
-        statsUpdateTimer?.invalidate()
+        cleanup()
     }
 } 
