@@ -24,30 +24,35 @@ class AudioRecorder: NSObject, ObservableObject {
     private var audioEngine: AVAudioEngine?
     private var inputNode: AVAudioInputNode?
     private var latestAudioBuffer: Data?
-    private var audioFormat: AVAudioFormat?
+    var audioFormat: AVAudioFormat?
     
     // Task management
     private var setupTask: Task<Void, Never>?
+    
+    // Audio buffer cache
+    private var cachedAudioBuffer: Data?
     
     private override init() {
         super.init()
     }
     
-    func startRecording() {
+    // Function to start recording with a specific microphone ID
+    func startRecording(microphoneID: String) -> Bool {
         // Cancel any existing setup task
         setupTask?.cancel()
         
+        // Check if we're already recording
+        if isRecording {
+            logger.log("Recording is already in progress", level: .warning)
+            return false
+        }
+        
+        // Start the recording setup process
         setupTask = Task { [weak self] in
             guard let self = self else { return }
             
             do {
-                // Check if we're already recording first
-                if self.isRecording {
-                    self.logger.log("Recording is already in progress", level: .warning)
-                    return
-                }
-                
-                // Set up the audio engine for streaming - done first as it's critical
+                // Set up the audio engine for streaming
                 try await self.setupAudioEngineAsync()
                 
                 // Create a temporary URL for the audio recording
@@ -62,19 +67,19 @@ class AudioRecorder: NSObject, ObservableObject {
                     AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
                 ]
                 
-                // Try to set the selected microphone device if available
-                if !self.settings.selectedMicrophoneID.isEmpty, let deviceIDInt = UInt32(self.settings.selectedMicrophoneID) {
+                // Try to set the selected microphone device
+                if !microphoneID.isEmpty && microphoneID != "default", let deviceIDInt = UInt32(microphoneID) {
                     var deviceID = AudioDeviceID(deviceIDInt)
                     self.logger.log("Setting recording device to ID: \(deviceID)", level: .info)
                     
-                    // On macOS, you can use Core Audio to set the default input device before recording
+                    // On macOS, use Core Audio to set the default input device
                     var propertyAddress = AudioObjectPropertyAddress(
                         mSelector: kAudioHardwarePropertyDefaultInputDevice,
                         mScope: kAudioObjectPropertyScopeGlobal,
                         mElement: kAudioObjectPropertyElementMain
                     )
                     
-                    // Try to set the default input device
+                    // Set the default input device
                     let status = AudioObjectSetPropertyData(
                         AudioObjectID(kAudioObjectSystemObject),
                         &propertyAddress,
@@ -90,7 +95,7 @@ class AudioRecorder: NSObject, ObservableObject {
                         self.logger.log("Successfully set default input device to ID: \(deviceID)", level: .info)
                     }
                     
-                    // Set up real-time audio level monitoring using the AudioLevelMonitor 
+                    // Set up audio level monitoring
                     await MainActor.run {
                         self.setupAudioMonitoring(deviceID: deviceIDInt)
                     }
@@ -132,38 +137,68 @@ class AudioRecorder: NSObject, ObservableObject {
                 }
             }
         }
+        
+        // Return true to indicate that recording setup has started
+        // The actual success/failure will be determined asynchronously
+        return true
     }
     
     func stopRecording() {
-        // Cancel any setup task
-        setupTask?.cancel()
+        // Guard against multiple calls to stopRecording()
+        guard isRecording else {
+            logger.log("stopRecording() called while not recording, ignoring", level: .debug)
+            return
+        }
         
+        logger.log("stopRecording() called, attempting to stop recording", level: .info)
+        
+        // Mark as not recording immediately to prevent multiple calls
+        isRecording = false
+        
+        // Capture audio buffer before doing anything else
+        if let buffer = latestAudioBuffer, !buffer.isEmpty {
+            cachedAudioBuffer = buffer
+            logger.log("Successfully cached \(buffer.count) bytes of audio data before stopping", level: .info)
+        } else {
+            logger.log("Warning: No audio buffer available when stopping recording", level: .warning)
+        }
+        
+        // Safe cleanup in a task to ensure completion
         Task { [weak self] in
             guard let self = self else { return }
             
+            // Stop the audio engine first
             await MainActor.run {
+                logger.log("Stopping audio engine and recording components...", level: .info)
+                
                 // Stop the audio engine
                 self.stopAudioEngine()
                 
-                // Stop recording
-                self.audioRecorder?.stop()
+                // Stop the audio recorder
+                if let recorder = self.audioRecorder {
+                    recorder.stop()
+                    logger.log("AVAudioRecorder stopped", level: .info)
+                } else {
+                    logger.log("No active AVAudioRecorder to stop", level: .debug)
+                }
                 self.audioRecorder = nil
                 
-                // Stop and reset the timer
+                // Reset timer
                 self.stopTimer()
                 
                 // Stop audio monitoring
                 self.stopAudioMonitoring()
                 
+                // Log the recording duration
+                if let startTime = self.recordingStartTime {
+                    let duration = Date().timeIntervalSince(startTime)
+                    self.logger.log("Stopped audio recording. Duration: \(String(format: "%.2f", duration)) seconds", level: .info)
+                } else {
+                    logger.log("Stopped audio recording. Could not calculate duration (no start time)", level: .warning)
+                }
+                
+                // Ensure isRecording state is false
                 self.isRecording = false
-                
-                // Log recording duration
-                let duration = self.recordingTime
-                self.logger.log("Stopped audio recording. Duration: \(String(format: "%.2f", duration)) seconds", level: .info)
-                
-                // Reset recording timer display
-                self.recordingTime = 0
-                self.audioLevel = 0
             }
         }
     }
@@ -371,24 +406,55 @@ class AudioRecorder: NSObject, ObservableObject {
     }
     
     func getLatestAudioBuffer() -> Data? {
-        // If audio engine is not set up, we'll need to return nil as we can't set it up synchronously here
-        if audioEngine == nil || !isAudioEngineSetup {
-            logger.log("Audio engine not set up when trying to get latest buffer", level: .warning)
-            return nil
+        // If audio engine is not set up or not running, try to return cached buffer
+        if audioEngine == nil || !isAudioEngineSetup || audioEngine?.isRunning != true {
+            logger.log("Audio engine not set up or not running when trying to get latest buffer, using cached buffer", level: .warning)
+            if let cached = cachedAudioBuffer, !cached.isEmpty {
+                logger.log("Returning cached audio buffer of size: \(cached.count) bytes", level: .debug)
+                return cached
+            } else if let latest = latestAudioBuffer, !latest.isEmpty {
+                logger.log("No valid cached buffer, returning last known buffer of size: \(latest.count) bytes", level: .debug)
+                return latest
+            } else {
+                logger.log("No audio buffer available (cached or latest)", level: .warning)
+                return nil
+            }
         }
         
-        // Return the latest captured audio data
-        return latestAudioBuffer
+        // If we have a valid latest buffer, cache it
+        if let latest = latestAudioBuffer, !latest.isEmpty {
+            cachedAudioBuffer = latest
+            logger.log("Audio buffer captured: \(latest.count) bytes", level: .debug)
+            return latest
+        } else {
+            logger.log("No audio data in latest buffer", level: .warning)
+            return cachedAudioBuffer // Return previously cached buffer as fallback
+        }
     }
     
     func stopAudioEngine() {
-        audioEngine?.stop()
+        // Cache the latest buffer before stopping the engine if we haven't already
+        if cachedAudioBuffer == nil || cachedAudioBuffer?.isEmpty == true {
+            if let buffer = latestAudioBuffer, !buffer.isEmpty {
+                cachedAudioBuffer = buffer
+                logger.log("Cached \(buffer.count) bytes of audio before stopping engine", level: .debug)
+            } else {
+                logger.log("No audio buffer to cache before stopping engine", level: .warning)
+            }
+        }
+        
+        if audioEngine?.isRunning == true {
+            audioEngine?.stop()
+            logger.log("Audio engine stopped", level: .info)
+        } else {
+            logger.log("Audio engine was not running when trying to stop it", level: .debug)
+        }
+        
         inputNode?.removeTap(onBus: 0)
         audioEngine = nil
         inputNode = nil
         latestAudioBuffer = nil
         isAudioEngineSetup = false
-        logger.log("Audio engine stopped", level: .info)
     }
     
     // Clean up all resources
@@ -403,6 +469,11 @@ class AudioRecorder: NSObject, ObservableObject {
             audioRecorder = nil
             isRecording = false
         }
+    }
+    
+    // Original method for backward compatibility
+    func startRecording() {
+        _ = startRecording(microphoneID: settings.selectedMicrophoneID)
     }
 }
 

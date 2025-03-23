@@ -299,22 +299,12 @@ struct SettingsView: View {
                     logger.log("Inside MainActor.run", level: .debug)
                     isTestingAPIKey = false
                     
-                    switch result {
-                    case .success:
+                    if result {
                         logger.log("API key test successful", level: .info)
                         apiKeyTestResult = .success
-                    case .failure(let error):
-                        logger.log("API key test failed: \(error.localizedDescription)", level: .error)
-                        
-                        // Handle different types of errors with different UI feedback
-                        switch error {
-                        case OpenAIManager.APIError.networkConnectivity(let message):
-                            apiKeyTestResult = .networkError(simplifyNetworkErrorMessage(message))
-                        case OpenAIManager.APIError.invalidAPIKey:
-                            apiKeyTestResult = .error("Invalid API key")
-                        default:
-                            apiKeyTestResult = .error(error.localizedDescription)
-                        }
+                    } else {
+                        logger.log("API key test failed", level: .error)
+                        apiKeyTestResult = .error("Invalid API key")
                     }
                 }
             } else {
