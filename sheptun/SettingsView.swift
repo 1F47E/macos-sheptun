@@ -21,7 +21,7 @@ struct SettingsView: View {
     }
     
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 20) {
             // Hotkey Section
             VStack(alignment: .leading, spacing: 12) {
                 Text("Hotkey")
@@ -81,6 +81,36 @@ struct SettingsView: View {
                         }
                         .padding(.vertical, 8)
                     }
+                }
+                .padding()
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
+            }
+            .padding(.horizontal)
+            
+            // Transcription Model Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Transcription Model")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                VStack {
+                    Picker("Select Model", selection: $settings.transcriptionModel) {
+                        Text("GPT-4o Mini Transcribe (Recommended)").tag("gpt-4o-mini-transcribe")
+                        Text("GPT-4o Transcribe").tag("gpt-4o-transcribe")
+                        Text("Whisper").tag("whisper-1")
+                    }
+                    .labelsHidden()
+                    .onChange(of: settings.transcriptionModel) { oldValue, newValue in
+                        logger.log("Selected transcription model changed to: \(newValue)")
+                    }
+                    
+                    Text("GPT-4o Mini Transcribe offers the best balance of speed and accuracy")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 4)
                 }
                 .padding()
                 .background(Color(NSColor.controlBackgroundColor))
@@ -185,7 +215,7 @@ struct SettingsView: View {
             .keyboardShortcut(.defaultAction)
             .padding(.bottom, 20)
         }
-        .frame(width: 500, height: 460) // Slightly increased for the audio level meter
+        .frame(width: 500, height: 520) // Increased height to accommodate the transcription model section
         .onAppear {
             logger.log("Settings view appeared")
             apiKeyInput = settings.openAIKey

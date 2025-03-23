@@ -351,41 +351,58 @@ struct TranscribeDebugView: View {
 
 // ViewModel to manage the transcription state and OpenAI connection
 class TranscribeViewModel: ObservableObject {
-    // OpenAI and audio objects
+    // MARK: - Properties
+    
+    @ObservedObject private var audioRecorder = AudioRecorder.shared
     private let openAIManager = OpenAIManager.shared
-    private let audioRecorder = AudioRecorder.shared
-    private let settingsManager = SettingsManager.shared
+    @ObservedObject private var settingsManager = SettingsManager.shared
     private let logger = Logger.shared
     
-    // Published properties for UI updates
-    @Published var transcriptionText = ""
+    // Recording state
     @Published var isRecordingAudio = false
-    @Published var statusText = "Ready"
-    @Published var audioLevel: Float = 0.0
-    @Published var sessionStartTime: Date?
-    @Published var sessionDurationFormatted = "00:00"
-    @Published var lastError = ""
-    @Published var selectedModel: OpenAIManager.TranscriptionModel = .gpt4oTranscribe
-    @Published var isTranscribing = false
     @Published var isInitializingRecording = false
+    @Published var sessionTimer: Timer?
+    @Published var sessionDuration: TimeInterval = 0
+    @Published var sessionStartTime: Date?
+    
+    // Transcription state
+    @Published var isTranscribing = false
+    @Published var transcriptionText = ""
+    @Published var statusText = "Ready"
+    @Published var lastError = ""
+    
+    // Recording info
+    @Published var recordedAudioDuration: TimeInterval = 0
+    @Published var recordedAudioDurationFormatted = "00:00"
     @Published var recordedAudioSize: Int = 0
-    @Published var recordedAudioSizeFormatted: String = "0.0"
-    @Published var recordedAudioDurationFormatted: String = "00:00"
+    @Published var microphone = "Default"
+    
+    // API info
+    @Published var selectedModel: OpenAIManager.TranscriptionModel = .gpt4oMiniTranscribe
     @Published var apiResponseTime: Double = 0.0
     @Published var recordedAudioAvailable: Bool = false
+    @Published var recordedAudioPath: String?
     
     // Task management
     private var recordingTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
     
-    // Timer for updating session duration and stats
-    private var sessionTimer: Timer?
+    // For stats display
     private var statsUpdateTimer: Timer?
+    @Published var errorMessage: String = ""
+    @Published var transcribedText: String = ""
+    @Published var rawAudioSize: Int = 0
+    @Published var processedDataSize: Int = 0
+    @Published var transcriptionDuration: TimeInterval = 0
     
-    // Persistent properties to store recorded audio data
-    private var recordedAudioData: Data? = nil
-    private var recordedAudioFormat: AVAudioFormat? = nil
-    private var recordedAudioDuration: TimeInterval = 0
+    // UI info display
+    @Published var showRecordingInfo = true
+    @Published var showSettings = false
+    
+    // Published properties for UI updates
+    @Published var audioLevel: Float = 0.0
+    @Published var sessionDurationFormatted = "00:00"
+    @Published var recordedAudioSizeFormatted: String = "0.0"
     
     func setupForView() {
         setupAudioLevelMonitoring()
@@ -396,7 +413,7 @@ class TranscribeViewModel: ObservableObject {
         isTranscribing = false
         isRecordingAudio = openAIManager.isRecordingAudio
         
-        // Check if we have stored audio data
+        // Check if we have stored audio file
         updateRecordedAudioInfo()
     }
     
@@ -441,14 +458,27 @@ class TranscribeViewModel: ObservableObject {
     }
     
     private func updateRecordedAudioInfo() {
-        if let audioData = recordedAudioData {
-            recordedAudioSize = audioData.count
-            recordedAudioSizeFormatted = String(format: "%.1f", Double(audioData.count) / 1024.0)
-            recordedAudioAvailable = true
+        // Check if there's a recording file available
+        if let recordedFileURL = audioRecorder.getRecordingFileURL() {
+            recordedAudioPath = recordedFileURL.path
+            
+            do {
+                let attributes = try FileManager.default.attributesOfItem(atPath: recordedFileURL.path)
+                if let fileSize = attributes[.size] as? NSNumber {
+                    recordedAudioSize = fileSize.intValue
+                    recordedAudioSizeFormatted = String(format: "%.1f", Double(fileSize.intValue) / 1024.0)
+                    recordedAudioAvailable = true
+                    logger.log("Found recorded audio file: \(recordedFileURL.path), size: \(fileSize.intValue) bytes", level: .debug)
+                }
+            } catch {
+                logger.log("Error getting file attributes: \(error.localizedDescription)", level: .warning)
+                recordedAudioAvailable = false
+            }
         } else {
             recordedAudioSize = 0
             recordedAudioSizeFormatted = "0.0"
             recordedAudioAvailable = false
+            recordedAudioPath = nil
         }
     }
     
@@ -509,8 +539,8 @@ class TranscribeViewModel: ObservableObject {
                 let deviceID = self.settingsManager.selectedMicrophoneID.isEmpty ? 
                              "default" : self.settingsManager.selectedMicrophoneID
                 
-                // Start recording through OpenAIManager
-                self.openAIManager.startRecording(deviceID: deviceID)
+                // Start recording using AudioRecorder instead of OpenAIManager
+                self.audioRecorder.startRecording(microphoneID: deviceID)
                 
                 // Wait a small amount of time to check if recording actually started
                 try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
@@ -519,10 +549,11 @@ class TranscribeViewModel: ObservableObject {
                 await MainActor.run {
                     self.isInitializingRecording = false
                     
-                    if self.openAIManager.isRecordingAudio {
+                    if self.audioRecorder.isRecording {
                         self.logger.log("Recording started successfully", level: .info)
+                        self.isRecordingAudio = true
                     } else {
-                        self.lastError = self.openAIManager.lastError ?? "Failed to start recording"
+                        self.lastError = "Failed to start recording"
                         self.logger.log("Failed to start recording: \(self.lastError)", level: .error)
                         self.stopSessionTimer() // Stop timer if recording failed to start
                     }
@@ -572,59 +603,15 @@ class TranscribeViewModel: ObservableObject {
     
     // Stop recording without transcribing
     func stopRecording() {
-        // Guard against multiple calls to stopRecording()
-        guard isRecordingAudio else {
-            logger.log("stopRecording() called while not recording, ignoring", level: .debug)
-            return
-        }
-        
-        // Mark as not recording immediately to prevent multiple calls
-        isRecordingAudio = false
-        
-        logger.log("Stopping audio recording...", level: .info)
-        
-        // Calculate actual recording duration before stopping
-        let actualDuration = Date().timeIntervalSince(sessionStartTime ?? Date())
-        let formattedDuration = String(format: "%.2f", actualDuration)
-        
-        // Store the audio format before stopping
-        recordedAudioFormat = audioRecorder.audioFormat
-        
-        // Capture audio buffer before stopping the recording
-        if let audioData = audioRecorder.getLatestAudioBuffer() {
-            recordedAudioData = audioData
-            recordedAudioSize = audioData.count
-            recordedAudioDuration = actualDuration
-            recordedAudioDurationFormatted = formattedDuration
-            recordedAudioAvailable = true
-            logger.log("Recorded audio saved: \(recordedAudioSize) bytes, \(recordedAudioDuration) seconds", level: .info)
-        } else {
-            logger.log("No audio data available after recording", level: .warning)
-            recordedAudioAvailable = false
-        }
-        
-        // Stop the recording - use the OpenAIManager if it was started through it
-        if openAIManager.isRecordingAudio {
-            openAIManager.stopRecording()
-        } else {
-            // Direct stop if needed
-            audioRecorder.stopRecording()
-        }
-        
-        // Update UI state
-        DispatchQueue.main.async {
-            self.updateRecordedAudioInfo()
-        }
-        
-        // Stop the session timer
-        stopSessionTimer()
+        // Use our updated method that doesn't rely on buffer references
+        stopAudioRecording()
     }
     
     // Transcribe the previously recorded audio
     func transcribeRecordedAudio() {
         guard !isRecordingAudio && !isTranscribing && !isInitializingRecording else { return }
-        guard let audioData = recordedAudioData, !audioData.isEmpty else {
-            lastError = "No recorded audio available"
+        guard recordedAudioAvailable, let recordedFilePath = recordedAudioPath else {
+            lastError = "No recorded audio file available"
             return
         }
         
@@ -655,46 +642,25 @@ class TranscribeViewModel: ObservableObject {
         // Start time tracking for API response time
         let startTime = Date()
         
-        // Create a temporary file for the audio data
+        // Create a reference to the audio file
+        let recordedFileURL = URL(fileURLWithPath: recordedFilePath)
+        
+        // Start transcription task
         transcriptionTask = Task { [weak self] in
             guard let self = self else { return }
             
             do {
-                let tempDir = NSTemporaryDirectory()
-                let tempFilename = "recording_\(Int(Date().timeIntervalSince1970)).wav"
-                let tempURL = URL(fileURLWithPath: tempDir).appendingPathComponent(tempFilename)
-                
-                logger.log("Creating temporary audio file at: \(tempURL.path)", level: .debug)
-                
-                // Create a WAV file from the PCM data if we have format information
-                if let audioFormat = self.recordedAudioFormat {
-                    self.logger.log("Creating WAV file for transcription with format: \(audioFormat.description)", level: .debug)
-                    
-                    if let wavData = self.openAIManager.createWavData(fromPCMData: audioData, format: audioFormat) {
-                        try wavData.write(to: tempURL)
-                        self.logger.log("Created WAV file with size: \(wavData.count) bytes at \(tempURL.path)", level: .debug)
-                    } else {
-                        self.logger.log("Failed to create WAV file, attempting direct write to \(tempURL.path)", level: .warning)
-                        try audioData.write(to: tempURL)
-                    }
-                } else {
-                    self.logger.log("No audio format available, writing raw data to \(tempURL.path)", level: .warning)
-                    try audioData.write(to: tempURL)
-                }
-                
                 // Update UI to show model being used
                 await MainActor.run {
                     self.statusText = "Transcribing with \(model.rawValue)..."
                 }
                 
                 // Start transcription
-                self.logger.log("Starting transcription with model: \(model.rawValue)", level: .info)
+                self.logger.log("Starting transcription with model: \(model.rawValue) from file: \(recordedFilePath)", level: .info)
                 let result = await self.openAIManager.transcribeAudioFile(
-                    audioFileURL: tempURL,
+                    audioFileURL: recordedFileURL,
                     apiKey: apiKey,
-                    model: model,
-                    prompt: "",
-                    language: ""
+                    model: model
                 )
                 
                 // Calculate API response time
@@ -731,57 +697,54 @@ class TranscribeViewModel: ObservableObject {
         }
     }
     
-    func stopRecordingAndTranscribe() {
-        // Guard against multiple calls to stopRecordingAndTranscribe()
+    func stopAudioRecording() {
+        // Guard against multiple calls to stopAudioRecording()
         guard isRecordingAudio else {
-            logger.log("stopRecordingAndTranscribe() called while not recording, ignoring", level: .debug)
+            logger.log("stopAudioRecording() called while not recording, ignoring", level: .debug)
             return
         }
         
         // Mark as not recording immediately to prevent multiple calls
         isRecordingAudio = false
         
-        logger.log("Stopping recording and starting transcription", level: .info)
-        
-        // Update UI state
-        isTranscribing = true
-        statusText = "Transcribing..."
-        
-        // Record start time for API timing
-        let transcriptionStartTime = Date()
+        logger.log("Stopping audio recording...", level: .info)
         
         // Calculate actual recording duration before stopping
-        let actualDuration = sessionStartTime != nil ? Date().timeIntervalSince(sessionStartTime!) : 0
+        let actualDuration = Date().timeIntervalSince(sessionStartTime ?? Date())
+        let formattedDuration = String(format: "%.2f", actualDuration)
         
-        // Format the duration string
-        let minutes = Int(actualDuration) / 60
-        let seconds = Int(actualDuration) % 60
-        recordedAudioDurationFormatted = String(format: "%02d:%02d", minutes, seconds)
+        // Stop the recording first
+        audioRecorder.stopRecording()
         
-        // Stop any existing transcription task
-        transcriptionTask?.cancel()
-        
-        // Capture audio buffer before stopping the recording
-        guard let audioData = AudioRecorder.shared.getLatestAudioBuffer() else {
-            logger.log("No audio data available for transcription", level: .warning)
-            isTranscribing = false
-            statusText = "Failed - No audio data"
-            return
+        // Get the recorded file URL
+        if let recordedFileURL = audioRecorder.getRecordingFileURL() {
+            // Get file attributes
+            do {
+                let attributes = try FileManager.default.attributesOfItem(atPath: recordedFileURL.path)
+                if let fileSize = attributes[.size] as? NSNumber {
+                    recordedAudioSize = fileSize.intValue
+                    recordedAudioDuration = actualDuration
+                    recordedAudioDurationFormatted = formattedDuration
+                    recordedAudioAvailable = true
+                    recordedAudioPath = recordedFileURL.path
+                    logger.log("Recorded audio saved: \(recordedAudioSize) bytes, \(recordedAudioDuration) seconds at \(recordedFileURL.path)", level: .info)
+                }
+            } catch {
+                logger.log("Error getting recorded file attributes: \(error.localizedDescription)", level: .warning)
+                recordedAudioAvailable = false
+            }
+        } else {
+            logger.log("No recording file available after recording", level: .warning)
+            recordedAudioAvailable = false
         }
         
-        // Save recorded audio information
-        recordedAudioData = audioData
-        recordedAudioSize = audioData.count
-        recordedAudioDuration = actualDuration
-        
-        // Stop the recording
-        AudioRecorder.shared.stopRecording()
+        // Update UI state
+        DispatchQueue.main.async {
+            self.updateRecordedAudioInfo()
+        }
         
         // Stop the session timer
         stopSessionTimer()
-        
-        // Rest of the transcription code remains as is
-        // ...
     }
     
     func clearTranscription() {
@@ -817,8 +780,8 @@ class TranscribeViewModel: ObservableObject {
         sessionTimer?.invalidate()
         statsUpdateTimer?.invalidate()
         
-        // Stop all operations
-        openAIManager.stopTranscription()
+        // No need to call OpenAIManager.stopTranscription as it doesn't exist
+        // and we're not handling streaming audio
     }
     
     deinit {
@@ -834,18 +797,95 @@ class TranscribeViewModel: ObservableObject {
             // Get all files in the temporary directory
             let fileURLs = try FileManager.default.contentsOfDirectory(at: tempDirURL, includingPropertiesForKeys: nil)
             
-            // Find and delete only our recording WAV files, preserving the M4A file
+            // Find and delete only our temp recording files
             for fileURL in fileURLs {
-                // Only clean up WAV files that we create, not the M4A file
-                if fileURL.lastPathComponent.starts(with: "recording_") && fileURL.pathExtension.lowercased() == "wav" {
+                if fileURL.lastPathComponent.starts(with: "recording_") {
                     try FileManager.default.removeItem(at: fileURL)
                     logger.log("Cleaned up previous recording file: \(fileURL.path)", level: .debug)
                 }
             }
             
-            logger.log("Temporary directory cleanup completed. M4A file preserved for reuse.", level: .debug)
+            logger.log("Temporary directory cleanup completed", level: .debug)
         } catch {
             logger.log("Error cleaning up temporary files: \(error.localizedDescription)", level: .warning)
+        }
+    }
+    
+    // Function to start a new transcription from recorded audio
+    func captureAudioAndTranscribe() {
+        isTranscribing = true
+        sessionStartTime = Date()
+        
+        Task {
+            do {
+                guard let recordedFileURL = audioRecorder.getRecordingFileURL() else {
+                    await MainActor.run {
+                        errorMessage = "No recording file available"
+                        isTranscribing = false
+                    }
+                    return
+                }
+                
+                await MainActor.run {
+                    recordedAudioPath = recordedFileURL.path
+                }
+                
+                // Get file info for debugging
+                do {
+                    let attributes = try FileManager.default.attributesOfItem(atPath: recordedFileURL.path)
+                    if let fileSize = attributes[.size] as? NSNumber {
+                        await MainActor.run {
+                            rawAudioSize = fileSize.intValue
+                        }
+                    }
+                } catch {
+                    logger.log("Error getting file attributes: \(error)", level: .warning)
+                }
+                
+                // If we have an API key, proceed
+                guard !settingsManager.openAIKey.isEmpty else {
+                    await MainActor.run {
+                        errorMessage = "Please set your OpenAI API key in settings"
+                        isTranscribing = false
+                    }
+                    return
+                }
+                
+                let startTime = Date()
+                let result = await openAIManager.transcribeAudioFile(
+                    audioFileURL: recordedFileURL,
+                    apiKey: settingsManager.openAIKey,
+                    model: selectedModel
+                )
+                
+                let elapsed = Date().timeIntervalSince(startTime)
+                
+                await MainActor.run {
+                    transcriptionDuration = elapsed
+                    
+                    switch result {
+                    case .success(let transcription):
+                        transcribedText = transcription
+                        processedDataSize = transcription.count
+                        logger.log("Transcription success: \(transcription)", level: .info)
+                        
+                        // Copy to clipboard automatically
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(transcription, forType: .string)
+                        
+                    case .failure(let error):
+                        errorMessage = error.localizedDescription
+                        logger.log("Transcription error: \(error)", level: .error)
+                    }
+                    
+                    isTranscribing = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    isTranscribing = false
+                }
+            }
         }
     }
 } 

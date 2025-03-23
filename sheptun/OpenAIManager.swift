@@ -6,6 +6,7 @@ class OpenAIManager {
     
     private let logger = Logger.shared
     private let baseURL = "https://api.openai.com/v1"
+    private let settings = SettingsManager.shared
     var lastError: String?
     var isRecordingAudio = false
     
@@ -22,6 +23,7 @@ class OpenAIManager {
         case audioProcessingError(String)
         case networkConnectivity(String)
         case taskCancelled
+        case serverError(statusCode: Int, responseBody: String)
         
         var errorDescription: String? {
             switch self {
@@ -37,6 +39,8 @@ class OpenAIManager {
                 return "Network connectivity issue: \(details)"
             case .taskCancelled:
                 return "Task was cancelled"
+            case .serverError(let statusCode, let responseBody):
+                return "Server error with status code \(statusCode): \(responseBody)"
             }
         }
     }
@@ -56,60 +60,9 @@ class OpenAIManager {
         let text: String
     }
     
-    // Function to start recording
-    func startRecording(deviceID: String) {
-        // Clear any previous errors
-        lastError = nil
-        
-        // Create an instance of the AudioRecorder with the specified device
-        let audioRecorder = AudioRecorder.shared
-        
-        // Log the start of recording with device ID
-        logger.log("Starting audio recording with device ID: \(deviceID)", level: .debug)
-        
-        // Configure and start the recording
-        let didStart = audioRecorder.startRecording(microphoneID: deviceID)
-        
-        if didStart {
-            isRecordingAudio = true
-            logger.log("Audio recording started successfully", level: .debug)
-        } else {
-            isRecordingAudio = false
-            lastError = "Failed to start recording"
-            logger.log("Failed to start audio recording with device ID: \(deviceID)", level: .error)
-        }
-    }
-    
-    // Function to stop recording without transcription
-    func stopRecording() {
-        logger.log("Stopping audio recording (without transcription)", level: .debug)
-        
-        // Stop the AudioRecorder
-        AudioRecorder.shared.stopRecording()
-        
-        // Update recording state
-        isRecordingAudio = false
-        
-        logger.log("Audio recording stopped", level: .info)
-    }
-    
-    // Function to stop recording and handle transcription
-    func stopRecordingAndTranscribe(
-        apiKey: String,
-        model: TranscriptionModel = .whisper1,
-        prompt: String = "",
-        language: String = "",
-        completion: @escaping (Result<String, APIError>) -> Void
-    ) {
-        // Implementation details omitted
-    }
-    
-    // Function to stop transcription
-    func stopTranscription() {
-        // Implementation details omitted
-    }
     
     // Test if the API key is valid
+    // by checking if the models endpoint returns a 200 status code
     func testAPIKey(apiKey: String) async -> Bool {
         guard let url = URL(string: "\(baseURL)/models") else {
             logger.log("Invalid URL for API key test", level: .error)
@@ -133,223 +86,340 @@ class OpenAIManager {
         }
     }
     
-    // Transcribe an audio file using the OpenAI API
-    func transcribeAudioFile(audioFileURL: URL, 
-                             apiKey: String,
-                             model: TranscriptionModel = .gpt4oMiniTranscribe,
-                             prompt: String = "",
-                             language: String = "en") async -> Result<String, APIError> {
+    // Helper method to send audio file to OpenAI
+    func sendAudioToOpenAI(
+        fileToSend: URL,
+        apiKey: String,
+        prompt: String = "",
+        language: String = "en"
+    ) async -> Result<String, Error> {
+        return await sendAudioToOpenAI(
+            fileToSend: fileToSend,
+            apiKey: apiKey,
+            model: getModelFromSettings(),
+            prompt: prompt,
+            language: language
+        )
+    }
+    
+    // Helper method to get the selected model from settings
+    private func getModelFromSettings() -> TranscriptionModel {
+        let modelString = settings.transcriptionModel
         
-        // Always use the WAV file provided by the caller - this is already properly formatted
-        let fileToUse = audioFileURL
-        
-        logger.log("Starting transcription with model: \(model.rawValue) from file: \(fileToUse.path)", level: .info)
-        
-        // Use the audio/transcriptions endpoint for all models
-        let endpoint = "\(baseURL)/audio/transcriptions"
-        
-        guard let url = URL(string: endpoint) else {
-            logger.log("Invalid URL for transcription API: \(endpoint)", level: .error)
-            return .failure(.invalidURL)
+        if let model = TranscriptionModel(rawValue: modelString) {
+            return model
+        } else {
+            // Default to gpt-4o-mini-transcribe if we can't parse the setting
+            logger.log("Invalid model string in settings: \(modelString), defaulting to gpt-4o-mini-transcribe", level: .warning)
+            return .gpt4oMiniTranscribe
         }
+    }
         
-        let startTime = Date()
-        
+    // Helper method to send audio file to OpenAI
+    private func sendAudioToOpenAI(
+        fileToSend: URL,
+        apiKey: String,
+        model: TranscriptionModel,
+        prompt: String,
+        language: String
+    ) async -> Result<String, Error> {
         do {
-            // Add the audio file
-            let audioData = try Data(contentsOf: fileToUse)
-            let filename = fileToUse.lastPathComponent
-            
-            // Set up multipart form data for all models
+            // Set up the request
+            let url = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
-            request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
             
+            // Generate a unique boundary string for multipart/form-data
             let boundary = "Boundary-\(UUID().uuidString)"
-            request.addValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             
-            var body = Data()
+            // Create multipart/form-data body
+            var data = Data()
             
             // Add model parameter
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(model.rawValue)\r\n".data(using: .utf8)!)
+            data.append("--\(boundary)\r\n".data(using: .utf8)!)
+            data.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
+            data.append("\(model.rawValue)\r\n".data(using: .utf8)!)
             
-            // Add prompt parameter if non-empty
-            if !prompt.isEmpty {
-                body.append("--\(boundary)\r\n".data(using: .utf8)!)
-                body.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
-                body.append("\(prompt)\r\n".data(using: .utf8)!)
+            // Add language parameter if specified
+            if !language.isEmpty {
+                data.append("--\(boundary)\r\n".data(using: .utf8)!)
+                data.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
+                data.append("\(language)\r\n".data(using: .utf8)!)
             }
             
-            // Add language parameter (default to "en" if not specified)
-            let languageToUse = language.isEmpty ? "en" : language
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(languageToUse)\r\n".data(using: .utf8)!)
+            // Add prompt parameter if specified
+            if !prompt.isEmpty {
+                data.append("--\(boundary)\r\n".data(using: .utf8)!)
+                data.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
+                data.append("\(prompt)\r\n".data(using: .utf8)!)
+            }
             
-            // Add temperature parameter (default 0.3)
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"temperature\"\r\n\r\n".data(using: .utf8)!)
-            body.append("0.3\r\n".data(using: .utf8)!)
+            // Add temperature parameter (lower for more accurate transcription)
+            data.append("--\(boundary)\r\n".data(using: .utf8)!)
+            data.append("Content-Disposition: form-data; name=\"temperature\"\r\n\r\n".data(using: .utf8)!)
+            data.append("0.3\r\n".data(using: .utf8)!)
             
             // Add response_format parameter
-            let responseFormat = (model == .whisper1) ? "json" : "text"
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(responseFormat)\r\n".data(using: .utf8)!)
+            data.append("--\(boundary)\r\n".data(using: .utf8)!)
+            data.append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".data(using: .utf8)!)
+            data.append("text\r\n".data(using: .utf8)!)
             
-            // Add the audio file data
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+            // Add file data
+            data.append("--\(boundary)\r\n".data(using: .utf8)!)
+            data.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileToSend.lastPathComponent)\"\r\n".data(using: .utf8)!)
             
-            // Set proper content type based on file extension
-            let contentType = fileToUse.pathExtension.lowercased() == "m4a" ? "audio/m4a" : "audio/wav"
-            body.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
-            body.append(audioData)
-            body.append("\r\n".data(using: .utf8)!)
+            // Set the correct Content-Type based on file extension
+            let fileExtension = fileToSend.pathExtension.lowercased()
+            let contentType: String
             
-            // End the request
-            body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+            switch fileExtension {
+            case "m4a":
+                contentType = "audio/mp4"
+            case "mp3", "mpeg", "mpga":
+                contentType = "audio/mpeg"
+            case "wav":
+                contentType = "audio/wav"
+            case "mp4":
+                contentType = "audio/mp4"
+            case "ogg", "oga":
+                contentType = "audio/ogg"
+            case "flac":
+                contentType = "audio/flac"
+            case "webm":
+                contentType = "audio/webm"
+            default:
+                contentType = "audio/mpeg" // Default fallback
+            }
             
-            // Set the request body
-            request.httpBody = body
+            data.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
             
-            // Log the request details
-            logger.log("Sending API request to: \(endpoint)", level: .debug)
+            // Read file data directly from the file
+            let fileData = try Data(contentsOf: fileToSend)
+            
+            // Log file header for debugging (first 32 bytes as hex)
+            let headerSize = min(fileData.count, 32)
+            if headerSize > 0 {
+                let fileHeaderHex = fileData.prefix(headerSize).map { String(format: "%02x", $0) }.joined(separator: " ")
+                logger.log("File header (first \(headerSize) bytes): \(fileHeaderHex)", level: .debug)
+                
+                // Try to detect file format from magic numbers
+                let formatInfo = detectFileFormat(data: fileData)
+                logger.log("File format detection: \(formatInfo)", level: .debug)
+            }
+            
+            data.append(fileData)
+            data.append("\r\n".data(using: .utf8)!)
+            
+            // Close the boundary
+            data.append("--\(boundary)--\r\n".data(using: .utf8)!)
+            
+            // Log request details for debugging
+            logger.log("Sending API request to: \(url.absoluteString)", level: .debug)
             logger.log("Request headers: \(request.allHTTPHeaderFields ?? [:])", level: .debug)
-            logger.log("Request parameters: model=\(model.rawValue), language=\(languageToUse), temperature=0.3, response_format=\(responseFormat)", level: .debug)
-            logger.log("Audio file size: \(audioData.count) bytes", level: .debug)
+            logger.log("Request parameters: model=\(model.rawValue), language=\(language), temperature=0.3, response_format=text", level: .debug)
+            logger.log("Audio file size: \(fileData.count) bytes, contentType: \(contentType), format: \(fileExtension)", level: .debug)
             
-            // Make the request
-            let (data, response) = try await URLSession.shared.data(for: request)
+            // Generate a simplified multipart data representation for debugging
+            var simplifiedData = ""
+            simplifiedData += "--\(boundary)\r\n"
+            simplifiedData += "Content-Disposition: form-data; name=\"model\"\r\n\r\n"
+            simplifiedData += "\(model.rawValue)\r\n"
+            
+            if !language.isEmpty {
+                simplifiedData += "--\(boundary)\r\n"
+                simplifiedData += "Content-Disposition: form-data; name=\"language\"\r\n\r\n"
+                simplifiedData += "\(language)\r\n"
+            }
+            
+            simplifiedData += "--\(boundary)\r\n"
+            simplifiedData += "Content-Disposition: form-data; name=\"temperature\"\r\n\r\n"
+            simplifiedData += "0.3\r\n"
+            
+            simplifiedData += "--\(boundary)\r\n"
+            simplifiedData += "Content-Disposition: form-data; name=\"response_format\"\r\n\r\n"
+            simplifiedData += "text\r\n"
+            
+            simplifiedData += "--\(boundary)\r\n"
+            simplifiedData += "Content-Disposition: form-data; name=\"file\"; filename=\"\(fileToSend.lastPathComponent)\"\r\n"
+            simplifiedData += "Content-Type: \(contentType)\r\n\r\n"
+            simplifiedData += "[BINARY DATA: \(fileData.count) bytes]\r\n"
+            simplifiedData += "--\(boundary)--\r\n"
+            
+            logger.log("=== SIMPLIFIED MULTIPART REQUEST ===", level: .debug)
+            logger.log(simplifiedData, level: .debug)
+            logger.log("=== END SIMPLIFIED MULTIPART REQUEST ===", level: .debug)
+            
+            let startTime = Date()
+            
+            // Send the request
+            let (responseData, response) = try await URLSession.shared.upload(for: request, from: data)
             
             // Calculate response time
             let responseTime = Date().timeIntervalSince(startTime)
             logger.log("OpenAI API responded in \(String(format: "%.2f", responseTime)) seconds", level: .info)
             
-            // Check the response status code
+            // Check for HTTP status code
             guard let httpResponse = response as? HTTPURLResponse else {
-                logger.log("Invalid response from API", level: .error)
-                return .failure(.invalidResponse)
+                return .failure(NSError(domain: "OpenAIManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"]))
             }
             
-            // Log the response
-            if let responseString = String(data: data, encoding: .utf8) {
-                logger.log("API response (status \(httpResponse.statusCode)): \(responseString)", level: .debug)
-            }
+            // Log all responses for debugging
+            let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
+            logger.log("Response status code: \(httpResponse.statusCode)", level: .debug)
+            logger.log("Response body: \(responseString)", level: .debug)
             
-            if httpResponse.statusCode != 200 {
-                // Try to parse error details from the response
-                let errorMessage = try? parseErrorMessage(from: data) ?? "Unknown error"
-                logger.log("API error (status \(httpResponse.statusCode)): \(errorMessage ?? "Unknown error")", level: .error)
-                return .failure(.requestFailed(statusCode: httpResponse.statusCode, message: errorMessage ?? "Unknown error"))
-            }
-            
-            // Parse the response based on response format
-            if responseFormat == "json" {
-                if let responseObject = try? JSONDecoder().decode(TranscriptionResponse.self, from: data) {
-                    logger.log("Transcription successful, received \(responseObject.text.count) characters", level: .info)
-                    return .success(responseObject.text)
+            // Check if response is successful (2xx status code)
+            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
+                if let transcription = String(data: responseData, encoding: .utf8) {
+                    return .success(transcription)
                 } else {
-                    logger.log("Failed to decode JSON response from API", level: .error)
-                    if let responseString = String(data: data, encoding: .utf8) {
-                        logger.log("Raw response: \(responseString)", level: .debug)
-                    }
-                    return .failure(.invalidResponse)
+                    return .failure(NSError(domain: "OpenAIManager", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to decode transcription text"]))
                 }
             } else {
-                // For text response format
-                if let text = String(data: data, encoding: .utf8) {
-                    logger.log("Transcription successful, received \(text.count) characters", level: .info)
-                    return .success(text)
-                } else {
-                    logger.log("Failed to decode text response from API", level: .error)
-                    return .failure(.invalidResponse)
+                // Handle server errors (500+) specifically
+                if httpResponse.statusCode >= 500 {
+                    logger.log("Server error \(httpResponse.statusCode) received: \(responseString)", level: .error)
+                    return .failure(APIError.serverError(statusCode: httpResponse.statusCode, responseBody: responseString))
                 }
+                
+                // Try to parse the error message from the API
+                if let responseString = String(data: responseData, encoding: .utf8) {
+                    logger.log("=== RESPONSE HEADERS ===", level: .debug)
+                    logger.log("Status Code: \(httpResponse.statusCode)", level: .debug)
+                    for (key, value) in httpResponse.allHeaderFields {
+                        logger.log("\(key): \(value)", level: .debug)
+                    }
+                    logger.log("=== END RESPONSE HEADERS ===", level: .debug)
+                    
+                    logger.log("=== RESPONSE BODY ===", level: .debug)
+                    logger.log(responseString, level: .debug) 
+                    logger.log("=== END RESPONSE BODY ===", level: .debug)
+                    
+                    // Try to extract error message from JSON
+                    if let data = responseString.data(using: .utf8) {
+                        do {
+                            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                               let error = json["error"] as? [String: Any] {
+                                
+                                let message = error["message"] as? String ?? "Unknown error"
+                                let errorType = error["type"] as? String ?? "unknown_error"
+                                let errorCode = error["code"] as? String ?? "no_code"
+                                
+                                logger.log("API error: type=\(errorType), code=\(errorCode), message=\(message)", level: .error)
+                                logger.log("File details: name=\(fileToSend.lastPathComponent), size=\(fileData.count) bytes, contentType=\(contentType)", level: .error)
+                                
+                                // Generate a more detailed curl command for this specific error
+                                let fullCurlCommand = """
+                                curl -X POST https://api.openai.com/v1/audio/transcriptions \\
+                                  -H "Authorization: Bearer $OPENAI_API_KEY" \\
+                                  -H "Content-Type: multipart/form-data; boundary=\(boundary)" \\
+                                  -F "model=\(model.rawValue)" \\
+                                  -F "language=\(language)" \\
+                                  -F "temperature=0.3" \\
+                                  -F "response_format=text" \\
+                                  -F "file=@\(fileToSend.path)"
+                                """
+                                logger.log("=== DETAILED CURL COMMAND FOR ERROR ===", level: .debug)
+                                logger.log(fullCurlCommand, level: .debug)
+                                logger.log("=== END DETAILED CURL COMMAND ===", level: .debug)
+                                
+                                return .failure(NSError(domain: "OpenAIManager", code: httpResponse.statusCode, userInfo: [
+                                    NSLocalizedDescriptionKey: "Request failed with status code \(httpResponse.statusCode): \(message)",
+                                    "errorType": errorType,
+                                    "errorCode": errorCode
+                                ]))
+                            }
+                        } catch {
+                            logger.log("Failed to parse error JSON: \(error.localizedDescription)", level: .error)
+                        }
+                    }
+                }
+                
+                return .failure(NSError(domain: "OpenAIManager", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Request failed with HTTP status code \(httpResponse.statusCode)"]))
             }
         } catch {
-            logger.log("Error during transcription: \(error.localizedDescription)", level: .error)
-            if let nsError = error as NSError? {
-                if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-                    return .failure(.taskCancelled)
-                } else if nsError.domain == NSURLErrorDomain && 
-                          (nsError.code == NSURLErrorNotConnectedToInternet || 
-                           nsError.code == NSURLErrorNetworkConnectionLost) {
-                    return .failure(.networkConnectivity(nsError.localizedDescription))
-                }
-            }
-            return .failure(.audioProcessingError(error.localizedDescription))
+            logger.log("Error during API request: \(error.localizedDescription)", level: .error)
+            return .failure(error)
         }
     }
     
-    // Helper function to parse error messages from OpenAI API responses
-    private func parseErrorMessage(from data: Data) throws -> String? {
-        if let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let error = jsonObject["error"] as? [String: Any],
-           let message = error["message"] as? String {
-            return message
-        } else if let errorString = String(data: data, encoding: .utf8) {
-            return errorString
-        } else {
-            return nil
-        }
+    // For compatibility with existing code that uses transcribeAudioFile
+    func transcribeAudioFile(
+        audioFileURL: URL,
+        apiKey: String,
+        model: TranscriptionModel
+    ) async -> Result<String, Error> {
+        return await sendAudioToOpenAI(
+            fileToSend: audioFileURL,
+            apiKey: apiKey,
+            model: model,
+            prompt: "",
+            language: "en"
+        )
     }
-
-    func createWavData(fromPCMData pcmData: Data, format: AVAudioFormat) -> Data? {
-        guard pcmData.count > 0 else {
-            logger.log("No PCM data provided to create WAV file", level: .error)
-            return nil
+    
+    // Helper function to detect file format from data
+    private func detectFileFormat(data: Data) -> String {
+        guard data.count >= 12 else { return "File too small to detect format" }
+        
+        // Check for WAV
+        if data.count >= 12 && 
+           data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 && // "RIFF"
+           data[8] == 0x57 && data[9] == 0x41 && data[10] == 0x56 && data[11] == 0x45 { // "WAVE"
+            return "WAV format detected (RIFF/WAVE headers)"
         }
         
-        logger.log("Creating WAV data from PCM data of size: \(pcmData.count) bytes", level: .debug)
+        // Check for MP3
+        if data.count >= 3 && 
+           ((data[0] == 0x49 && data[1] == 0x44 && data[2] == 0x33) || // ID3 tag
+            (data[0] == 0xFF && (data[1] & 0xE0) == 0xE0)) { // MP3 sync word
+            return "MP3 format detected"
+        }
         
-        // Get audio format parameters
-        let sampleRate = UInt32(format.sampleRate)
-        let numChannels = UInt16(format.channelCount)
-        let bitsPerSample: UInt16 = 16 // We're using Int16 samples (2 bytes)
+        // Check for M4A/AAC (MPEG-4)
+        if data.count >= 12 && 
+           ((data[4] == 0x66 && data[5] == 0x74 && data[6] == 0x79 && data[7] == 0x70) || // ftyp
+            (data[4] == 0x6D && data[5] == 0x6F && data[6] == 0x6F && data[7] == 0x76)) { // moov
+            return "M4A/AAC format detected (MPEG-4 container)"
+        }
         
-        // Log WAV creation parameters
-        logger.log("WAV parameters - Sample rate: \(sampleRate)Hz, Channels: \(numChannels), Bits per sample: \(bitsPerSample)", level: .debug)
+        return "Unknown format, no standard header detected"
+    }
+}
+
+// Extension to get PCM data from AVAudioPCMBuffer
+extension AVAudioPCMBuffer {
+    func data() -> Data {
+        let channelCount = Int(format.channelCount)
+        let frameCount = Int(frameLength)
+        let sampleCount = frameCount * channelCount
         
-        // Create WAV header
-        var header = Data()
+        switch format.commonFormat {
+        case .pcmFormatFloat32:
+            if let floatData = floatChannelData {
+                let stride = format.streamDescription.pointee.mBytesPerFrame
+                let byteCount = Int(frameLength) * Int(stride)
+                return Data(bytes: floatData[0], count: byteCount)
+            }
+        case .pcmFormatInt16:
+            if let int16Data = int16ChannelData {
+                let stride = 2 // Int16 = 2 bytes
+                let byteCount = sampleCount * stride
+                return Data(bytes: int16Data[0], count: byteCount)
+            }
+        case .pcmFormatInt32:
+            if let int32Data = int32ChannelData {
+                let stride = 4 // Int32 = 4 bytes
+                let byteCount = sampleCount * stride
+                return Data(bytes: int32Data[0], count: byteCount)
+            }
+        default:
+            break
+        }
         
-        // RIFF header
-        header.append("RIFF".data(using: .ascii)!) // ChunkID (4 bytes)
-        let fileSize = UInt32(pcmData.count + 36) // File size (4 bytes) - add 36 for header size minus 8 bytes
-        header.append(withUnsafeBytes(of: fileSize.littleEndian) { Data($0) })
-        header.append("WAVE".data(using: .ascii)!) // Format (4 bytes)
-        
-        // fmt subchunk
-        header.append("fmt ".data(using: .ascii)!) // Subchunk1ID (4 bytes)
-        let subchunk1Size: UInt32 = 16 // PCM format (4 bytes)
-        header.append(withUnsafeBytes(of: subchunk1Size.littleEndian) { Data($0) })
-        let audioFormat: UInt16 = 1 // PCM = 1 (2 bytes)
-        header.append(withUnsafeBytes(of: audioFormat.littleEndian) { Data($0) })
-        header.append(withUnsafeBytes(of: numChannels.littleEndian) { Data($0) }) // NumChannels (2 bytes)
-        header.append(withUnsafeBytes(of: sampleRate.littleEndian) { Data($0) }) // SampleRate (4 bytes)
-        
-        // Calculate byte rate and block align
-        let byteRate = UInt32(sampleRate * UInt32(numChannels) * UInt32(bitsPerSample) / 8)
-        let blockAlign = UInt16(numChannels * bitsPerSample / 8)
-        
-        header.append(withUnsafeBytes(of: byteRate.littleEndian) { Data($0) }) // ByteRate (4 bytes)
-        header.append(withUnsafeBytes(of: blockAlign.littleEndian) { Data($0) }) // BlockAlign (2 bytes)
-        header.append(withUnsafeBytes(of: bitsPerSample.littleEndian) { Data($0) }) // BitsPerSample (2 bytes)
-        
-        // data subchunk
-        header.append("data".data(using: .ascii)!) // Subchunk2ID (4 bytes)
-        let subchunk2Size = UInt32(pcmData.count) // Subchunk2Size (4 bytes) - size of actual audio data
-        header.append(withUnsafeBytes(of: subchunk2Size.littleEndian) { Data($0) })
-        
-        // Create the final WAV data by combining the header and PCM data
-        var wavData = Data()
-        wavData.append(header)
-        wavData.append(pcmData)
-        
-        logger.log("WAV file created successfully with total size: \(wavData.count) bytes (Header: \(header.count) bytes, PCM: \(pcmData.count) bytes)", level: .debug)
-        
-        return wavData
-    } 
+        // Default - create empty data
+        return Data()
+    }
 } 

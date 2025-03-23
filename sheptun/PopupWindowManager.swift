@@ -85,14 +85,14 @@ class PopupWindowManager: ObservableObject {
         
         // Only fall back to simulation if real audio monitoring fails
         // We'll wait a bit to see if real monitoring is working
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            if self?.audioRecorder.audioLevel ?? 0 <= 0.01 {
-                self?.startAudioLevelSimulation()
-                self?.logger.log("Falling back to audio level simulation", level: .warning)
-            } else {
-                self?.logger.log("Using real audio levels from microphone", level: .info)
-            }
-        }
+        // DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        //     if self?.audioRecorder.audioLevel ?? 0 <= 0.01 {
+        //         self?.startAudioLevelSimulation()
+        //         self?.logger.log("Falling back to audio level simulation", level: .warning)
+        //     } else {
+        //         self?.logger.log("Using real audio levels from microphone", level: .info)
+        //     }
+        // }
         
         // Keep a reference to the window
         self.popupWindow = window
@@ -131,11 +131,11 @@ class PopupWindowManager: ObservableObject {
             guard let self = self else { return }
             
             do {
-                // Get the latest audio buffer - this is critical!
-                guard let audioData = audioRecorder.getLatestAudioBuffer() else {
+                // Get the path to the recorded file directly from the AudioRecorder
+                guard let recordedFileURL = audioRecorder.getRecordingFileURL() else {
                     await MainActor.run {
-                        currentState = .error("No audio data available")
-                        logger.log("No audio data available for transcription", level: .error)
+                        self.currentState = .error("Recording file not found")
+                        self.logger.log("No recording file available for transcription", level: .error)
                     }
                     
                     // Close window after a delay
@@ -147,33 +147,21 @@ class PopupWindowManager: ObservableObject {
                     return
                 }
                 
-                logger.log("Got audio buffer with size: \(audioData.count) bytes", level: .debug)
+                self.logger.log("Using recorded audio file at: \(recordedFileURL.path)", level: .debug)
                 
-                // Create a temporary WAV file from the audio data
-                let tempDir = NSTemporaryDirectory()
-                let tempFilename = "recording_\(Int(Date().timeIntervalSince1970)).wav"
-                let tempURL = URL(fileURLWithPath: tempDir).appendingPathComponent(tempFilename)
-                
-                // Use the audio format from the audio recorder
-                if let audioFormat = audioRecorder.audioFormat {
-                    logger.log("Creating WAV file with format: \(audioFormat.description)", level: .debug)
-                    
-                    // Use OpenAIManager to create WAV data from the PCM buffer
-                    if let wavData = openAIManager.createWavData(fromPCMData: audioData, format: audioFormat) {
-                        try wavData.write(to: tempURL)
-                        logger.log("Created WAV file with size: \(wavData.count) bytes", level: .debug)
-                    } else {
-                        logger.log("Failed to create WAV file, writing raw data", level: .warning)
-                        try audioData.write(to: tempURL)
+                // Get file size for debugging
+                do {
+                    let attributes = try FileManager.default.attributesOfItem(atPath: recordedFileURL.path)
+                    if let fileSize = attributes[.size] as? NSNumber {
+                        self.logger.log("Audio file size for transcription: \(fileSize.intValue) bytes", level: .debug)
                     }
-                } else {
-                    logger.log("No audio format available, writing raw data", level: .warning)
-                    try audioData.write(to: tempURL)
+                } catch {
+                    self.logger.log("Error getting file size: \(error.localizedDescription)", level: .warning)
                 }
                 
-                // Attempt to transcribe the audio with the WAV file we just created
+                // Attempt to transcribe the audio with the recorded file
                 let result = await openAIManager.transcribeAudioFile(
-                    audioFileURL: tempURL,
+                    audioFileURL: recordedFileURL,
                     apiKey: apiKey,
                     model: .gpt4oMiniTranscribe
                 )
@@ -183,8 +171,8 @@ class PopupWindowManager: ObservableObject {
                     switch result {
                     case .success(let transcription):
                         // Transcription successful
-                        logger.log("Transcription successful: \(transcription)", level: .info)
-                        currentState = .completed(transcription)
+                        self.logger.log("Transcription successful: \(transcription)", level: .info)
+                        self.currentState = .completed(transcription)
                         
                         // Copy to clipboard
                         NSPasteboard.general.clearContents()
@@ -197,8 +185,8 @@ class PopupWindowManager: ObservableObject {
                         
                     case .failure(let error):
                         // Transcription failed
-                        logger.log("Transcription failed: \(error.localizedDescription)", level: .error)
-                        currentState = .error(error.localizedDescription)
+                        self.logger.log("Transcription failed: \(error.localizedDescription)", level: .error)
+                        self.currentState = .error(error.localizedDescription)
                         
                         // Close window after a delay
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
@@ -208,8 +196,8 @@ class PopupWindowManager: ObservableObject {
                 }
             } catch {
                 await MainActor.run {
-                    logger.log("Failed to process audio: \(error.localizedDescription)", level: .error)
-                    currentState = .error("Failed to process audio: \(error.localizedDescription)")
+                    self.logger.log("Failed to process audio: \(error.localizedDescription)", level: .error)
+                    self.currentState = .error("Failed to process audio: \(error.localizedDescription)")
                     
                     // Close window after a delay
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
@@ -250,10 +238,18 @@ class PopupWindowManager: ObservableObject {
         logger.log("Positioned window at: x=\(centerX), y=\(topY)", level: .debug)
     }
     
+    // Audio level simulation methods
     private func startAudioLevelSimulation() {
-        // Create a timer to simulate audio level changes
+        stopAudioLevelSimulation()
+        
         audioLevelSimulationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.audioRecorder.simulateAudioLevels()
+            // Simulate a "breathing" audio level between 0.1 and 0.7
+            let time = Date().timeIntervalSince1970
+            let level = (sin(time * 3) + 1) / 2 * 0.6 + 0.1
+            
+            DispatchQueue.main.async {
+                self?.audioRecorder.audioLevel = Float(level)
+            }
         }
     }
     

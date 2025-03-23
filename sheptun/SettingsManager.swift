@@ -12,12 +12,14 @@ class SettingsManager: ObservableObject {
     @Published var hotkeyKeyCode: UInt = 0
     @Published var openAIKey: String = ""
     @Published var selectedMicrophoneID: String = ""
+    @Published var transcriptionModel: String = "gpt-4o-mini-transcribe"
     
     private enum Keys {
         static let hotkeyModifiers = "hotkeyModifiers"
         static let hotkeyKeyCode = "hotkeyKeyCode"
         static let openAIKey = "openAIKey"
         static let selectedMicrophoneID = "selectedMicrophoneID"
+        static let transcriptionModel = "transcriptionModel"
     }
     
     init() {
@@ -64,6 +66,14 @@ class SettingsManager: ObservableObject {
                 logger.log("No microphones available", level: .warning)
             }
         }
+        
+        if let savedModel = defaults.string(forKey: Keys.transcriptionModel) {
+            transcriptionModel = savedModel
+            logger.log("Loaded transcription model: \(savedModel)")
+        } else {
+            transcriptionModel = "gpt-4o-mini-transcribe"
+            logger.log("Using default transcription model: \(transcriptionModel)")
+        }
     }
     
     func saveSettings() {
@@ -85,6 +95,9 @@ class SettingsManager: ObservableObject {
         
         defaults.set(selectedMicrophoneID, forKey: Keys.selectedMicrophoneID)
         logger.log("Saved microphone ID: \(selectedMicrophoneID)")
+        
+        defaults.set(transcriptionModel, forKey: Keys.transcriptionModel)
+        logger.log("Saved transcription model: \(transcriptionModel)")
     }
     
     struct MicrophoneDevice: Identifiable, Hashable {
