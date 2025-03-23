@@ -139,24 +139,9 @@ class OpenAIManager {
                              model: TranscriptionModel = .gpt4oMiniTranscribe,
                              prompt: String = "",
                              language: String = "en") async -> Result<String, APIError> {
-        // Check if there's an M4A file which contains the full recording
-        let m4aURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("temp_recording.m4a")
         
-        // Use the M4A file if it exists and is larger than the input file
-        let fileToUse: URL
-        if FileManager.default.fileExists(atPath: m4aURL.path),
-           let m4aAttributes = try? FileManager.default.attributesOfItem(atPath: m4aURL.path),
-           let m4aSize = m4aAttributes[.size] as? Int,
-           let wavAttributes = try? FileManager.default.attributesOfItem(atPath: audioFileURL.path),
-           let wavSize = wavAttributes[.size] as? Int,
-           m4aSize > wavSize {
-            
-            logger.log("Using temp_recording.m4a file (\(m4aSize) bytes) instead of \(audioFileURL.lastPathComponent) (\(wavSize) bytes)", level: .info)
-            fileToUse = m4aURL
-        } else {
-            logger.log("Using provided WAV file: \(audioFileURL.path)", level: .info)
-            fileToUse = audioFileURL
-        }
+        // Always use the WAV file provided by the caller - this is already properly formatted
+        let fileToUse = audioFileURL
         
         logger.log("Starting transcription with model: \(model.rawValue) from file: \(fileToUse.path)", level: .info)
         

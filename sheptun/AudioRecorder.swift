@@ -284,20 +284,19 @@ class AudioRecorder: NSObject, ObservableObject {
     
     // Async version of setupAudioEngineForStreaming
     private func setupAudioEngineAsync() async throws {
-        // Check if already set up and running
+        // Check if audio engine is already set up
         if isAudioEngineSetup && audioEngine?.isRunning == true {
+            logger.log("Audio engine already setup and running", level: .debug)
             return
         }
         
         return try await withCheckedThrowingContinuation { continuation in
             do {
-                // Set up audio engine for real-time audio capture
+                // Create a new audio engine
                 audioEngine = AVAudioEngine()
                 inputNode = audioEngine?.inputNode
                 
-                // IMPORTANT: Use the native format of the input node instead of creating a custom format
-                // This prevents format incompatibility errors that can cause crashes
-                guard let inputNode = inputNode else {
+                guard let inputNode = inputNode, let engine = audioEngine else {
                     logger.log("Failed to get input node", level: .error)
                     continuation.resume(throwing: NSError(domain: "AudioRecorder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to get input node"]))
                     return
@@ -305,27 +304,21 @@ class AudioRecorder: NSObject, ObservableObject {
                 
                 // Get the native format from the input node
                 let nativeFormat = inputNode.inputFormat(forBus: 0)
-                logger.log("Using native input format: \(nativeFormat.description)", level: .info)
+                logger.log("Using native input format: \(nativeFormat)", level: .info)
                 
-                // Create a compatible format based on the native format
-                // Keeping sample rate the same as native but ensuring it's mono for speech recognition
-                let pcmFormat = AVAudioFormat(
+                // Save a reference to the format for WAV generation
+                audioFormat = AVAudioFormat(
                     commonFormat: .pcmFormatInt16,
                     sampleRate: nativeFormat.sampleRate,
                     channels: 1,
-                    interleaved: true
+                    interleaved: false
                 )
                 
-                audioFormat = pcmFormat
-                
-                guard let format = pcmFormat else {
-                    logger.log("Failed to create audio format", level: .error)
-                    continuation.resume(throwing: NSError(domain: "AudioRecorder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio format"]))
-                    return
-                }
+                // Set the recordingStartTime here when we actually start the audio processing
+                recordingStartTime = Date()
                 
                 // Install tap on input node to capture audio
-                inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
+                inputNode.installTap(onBus: 0, bufferSize: 1024, format: audioFormat) { [weak self] buffer, time in
                     guard let self = self else { return }
                     
                     // Convert audio buffer to Data
@@ -339,7 +332,7 @@ class AudioRecorder: NSObject, ObservableObject {
                 }
                 
                 // Start the audio engine
-                try audioEngine?.start()
+                try engine.start()
                 isAudioEngineSetup = true
                 logger.log("Audio engine started for streaming", level: .info)
                 

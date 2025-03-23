@@ -1,13 +1,25 @@
 import Cocoa
 import SwiftUI
 
-class PopupWindowManager {
+class PopupWindowManager: ObservableObject {
     static let shared = PopupWindowManager()
     
     private var popupWindow: NSWindow?
     private let logger = Logger.shared
     private let audioRecorder = AudioRecorder.shared
+    private let openAIManager = OpenAIManager.shared
+    private let settingsManager = SettingsManager.shared
     private var audioLevelSimulationTimer: Timer?
+    
+    // Add a way to track the current state of the popup
+    enum PopupState {
+        case recording
+        case transcribing
+        case completed(String)
+        case error(String)
+    }
+    
+    @Published var currentState: PopupState = .recording
     
     private init() {}
     
@@ -17,9 +29,10 @@ class PopupWindowManager {
     
     func togglePopupWindow() {
         if isWindowVisible {
-            closePopupWindow()
-            logger.log("Popup window toggled off", level: .info)
+            // If already visible, start transcription process
+            startTranscription()
         } else {
+            // If not visible, show the popup and start recording
             showPopupWindow()
             logger.log("Popup window toggled on", level: .info)
         }
@@ -32,6 +45,9 @@ class PopupWindowManager {
             positionWindowAtTopCenter(window)
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            
+            // Reset state to recording
+            currentState = .recording
             return
         }
         
@@ -63,7 +79,8 @@ class PopupWindowManager {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         
-        // Start audio recording
+        // Start audio recording and reset state
+        currentState = .recording
         audioRecorder.startRecording()
         
         // Only fall back to simulation if real audio monitoring fails
@@ -79,6 +96,128 @@ class PopupWindowManager {
         
         // Keep a reference to the window
         self.popupWindow = window
+    }
+    
+    func startTranscription() {
+        guard let window = popupWindow else { return }
+        
+        // Update state to show we're transcribing
+        currentState = .transcribing
+        logger.log("Starting transcription process", level: .info)
+        
+        // Stop recording first
+        audioRecorder.stopRecording()
+        
+        // Stop audio level simulation
+        stopAudioLevelSimulation()
+        
+        // Get the API key from settings
+        let apiKey = settingsManager.openAIKey
+        
+        if apiKey.isEmpty {
+            // Handle missing API key
+            currentState = .error("API key not set in settings")
+            logger.log("Cannot transcribe: API key not set", level: .error)
+            
+            // Close the window after a delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                self?.closePopupWindow()
+            }
+            return
+        }
+        
+        // Start transcription in a background task
+        Task { [weak self] in
+            guard let self = self else { return }
+            
+            do {
+                // Get the latest audio buffer - this is critical!
+                guard let audioData = audioRecorder.getLatestAudioBuffer() else {
+                    await MainActor.run {
+                        currentState = .error("No audio data available")
+                        logger.log("No audio data available for transcription", level: .error)
+                    }
+                    
+                    // Close window after a delay
+                    await MainActor.run {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                            self?.closePopupWindow()
+                        }
+                    }
+                    return
+                }
+                
+                logger.log("Got audio buffer with size: \(audioData.count) bytes", level: .debug)
+                
+                // Create a temporary WAV file from the audio data
+                let tempDir = NSTemporaryDirectory()
+                let tempFilename = "recording_\(Int(Date().timeIntervalSince1970)).wav"
+                let tempURL = URL(fileURLWithPath: tempDir).appendingPathComponent(tempFilename)
+                
+                // Use the audio format from the audio recorder
+                if let audioFormat = audioRecorder.audioFormat {
+                    logger.log("Creating WAV file with format: \(audioFormat.description)", level: .debug)
+                    
+                    // Use OpenAIManager to create WAV data from the PCM buffer
+                    if let wavData = openAIManager.createWavData(fromPCMData: audioData, format: audioFormat) {
+                        try wavData.write(to: tempURL)
+                        logger.log("Created WAV file with size: \(wavData.count) bytes", level: .debug)
+                    } else {
+                        logger.log("Failed to create WAV file, writing raw data", level: .warning)
+                        try audioData.write(to: tempURL)
+                    }
+                } else {
+                    logger.log("No audio format available, writing raw data", level: .warning)
+                    try audioData.write(to: tempURL)
+                }
+                
+                // Attempt to transcribe the audio with the WAV file we just created
+                let result = await openAIManager.transcribeAudioFile(
+                    audioFileURL: tempURL,
+                    apiKey: apiKey,
+                    model: .gpt4oMiniTranscribe
+                )
+                
+                // Handle the result on the main thread
+                await MainActor.run {
+                    switch result {
+                    case .success(let transcription):
+                        // Transcription successful
+                        logger.log("Transcription successful: \(transcription)", level: .info)
+                        currentState = .completed(transcription)
+                        
+                        // Copy to clipboard
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(transcription, forType: .string)
+                        
+                        // Close window after a short delay
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                            self?.closePopupWindow()
+                        }
+                        
+                    case .failure(let error):
+                        // Transcription failed
+                        logger.log("Transcription failed: \(error.localizedDescription)", level: .error)
+                        currentState = .error(error.localizedDescription)
+                        
+                        // Close window after a delay
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                            self?.closePopupWindow()
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    logger.log("Failed to process audio: \(error.localizedDescription)", level: .error)
+                    currentState = .error("Failed to process audio: \(error.localizedDescription)")
+                    
+                    // Close window after a delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                        self?.closePopupWindow()
+                    }
+                }
+            }
+        }
     }
     
     func closePopupWindow() {
@@ -127,34 +266,86 @@ class PopupWindowManager {
 // SwiftUI view for the recording session window
 struct RecordingSessionView: View {
     @ObservedObject private var audioRecorder = AudioRecorder.shared
+    @ObservedObject private var windowManager = PopupWindowManager.shared
     
     var body: some View {
         VStack(spacing: 12) {
-            Text("Recording Session")
+            Text(titleForState)
                 .font(.system(size: 18, weight: .bold))
                 .foregroundColor(.white)
             
-            // Debug volume level
-            Text("Volume: \(String(format: "%.2f", audioRecorder.audioLevel))")
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundColor(.gray)
-            
-            // Timer display
-            Text(formatTime(audioRecorder.recordingTime))
-                .font(.system(size: 24, weight: .medium, design: .monospaced))
-                .foregroundColor(.white)
-            
-            // Audio visualization with flowing dots using our new module
-            ParticleWaveEffect(intensity: audioRecorder.audioLevel)
-                .height(50)
-                .baseColor(.blue)
-                .accentColor(.purple)
-                .padding(.horizontal)
-            
-            Text("Speak now...")
-                .font(.system(size: 14))
-                .foregroundColor(.gray)
-                .padding(.bottom, 5)
+            Group {
+                switch windowManager.currentState {
+                case .recording:
+                    // Recording UI
+                    // Debug volume level
+                    Text("Volume: \(String(format: "%.2f", audioRecorder.audioLevel))")
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(.gray)
+                    
+                    // Timer display
+                    Text(formatTime(audioRecorder.recordingTime))
+                        .font(.system(size: 24, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white)
+                    
+                    // Audio visualization with flowing dots
+                    ParticleWaveEffect(intensity: audioRecorder.audioLevel)
+                        .height(50)
+                        .baseColor(.blue)
+                        .accentColor(.purple)
+                        .padding(.horizontal)
+                    
+                    Text("Speak now...")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                
+                case .transcribing:
+                    // Transcribing UI
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(1.5)
+                        .padding()
+                    
+                    Text("Transcribing audio...")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
+                
+                case .completed(let text):
+                    // Success UI
+                    Image(systemName: "checkmark.circle.fill")
+                        .resizable()
+                        .frame(width: 40, height: 40)
+                        .foregroundColor(.green)
+                        .padding()
+                    
+                    Text(text)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                    
+                    Text("Copied to clipboard")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                
+                case .error(let message):
+                    // Error UI
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .resizable()
+                        .frame(width: 40, height: 35)
+                        .foregroundColor(.red)
+                        .padding()
+                    
+                    Text("Error: \(message)")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+            }
+            .padding(.bottom, 5)
         }
         .frame(width: 400, height: 200)
         .background(
@@ -162,6 +353,19 @@ struct RecordingSessionView: View {
                 .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.95))
         )
         .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 5)
+    }
+    
+    private var titleForState: String {
+        switch windowManager.currentState {
+        case .recording:
+            return "Recording Session"
+        case .transcribing:
+            return "Processing Audio"
+        case .completed:
+            return "Transcription Complete"
+        case .error:
+            return "Transcription Error"
+        }
     }
     
     private func formatTime(_ timeInterval: TimeInterval) -> String {
