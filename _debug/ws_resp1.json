@@ -1,0 +1,20 @@
+{
+  "type": "transcription_session.created",
+  "event_id": "event_BDvuaeviyQmj9SoNUpUb7",
+  "session": {
+    "id": "sess_BDvuY1qiv5sHDqSkYR3cK",
+    "object": "realtime.transcription_session",
+    "expires_at": 1742662375,
+    "input_audio_noise_reduction": null,
+    "turn_detection": {
+      "type": "server_vad",
+      "threshold": 0.5,
+      "prefix_padding_ms": 300,
+      "silence_duration_ms": 200
+    },
+    "input_audio_format": "pcm16",
+    "input_audio_transcription": null,
+    "client_secret": null,
+    "include": null
+  }
+}

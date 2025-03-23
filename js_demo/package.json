@@ -1,0 +1,22 @@
+{
+  "name": "openai-live-transcription-demo",
+  "version": "1.0.0",
+  "description": "Demo of OpenAI's real-time transcription API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "openai",
+    "transcription",
+    "speech-to-text",
+    "realtime",
+    "websocket"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "ws": "^8.18.1"
+  }
+}

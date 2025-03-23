@@ -40,8 +40,19 @@ class Logger {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .medium)
         let logMessage = "[\(timestamp)] [\(level.rawValue)] [\(fileName):\(line) \(function)] \(message)\n"
         
-        // Print to console
-        print(logMessage, terminator: "")
+        // Print to console with formatting for visibility
+        switch level {
+        case .error:
+            print("🔴 ERROR: \(logMessage)", terminator: "")
+        case .warning:
+            print("⚠️ WARNING: \(logMessage)", terminator: "")
+        case .info:
+            print("ℹ️ \(logMessage)", terminator: "")
+        case .debug:
+            #if DEBUG
+            print("🔍 \(logMessage)", terminator: "")
+            #endif
+        }
         
         // Write to file
         guard let logFileURL = logFileURL else { return }

@@ -34,3 +34,5 @@ DerivedData/
 
 # Swift Package Manager
 .build/
+js_demo/.env
+js_demo/node_modules

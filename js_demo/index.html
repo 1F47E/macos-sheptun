@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenAI Live Transcription Demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>OpenAI Live Transcription Demo</h1>
+    
+    <div class="controls">
+      <button id="startButton" class="button">Start Recording</button>
+      <button id="stopButton" class="button" disabled>Stop Recording</button>
+    </div>
+    
+    <div class="status-container">
+      <div class="status-group">
+        <div class="status-label">Status:</div>
+        <div id="status" class="status">Initializing...</div>
+      </div>
+      <div class="status-group">
+        <div class="status-label">WebSocket:</div>
+        <div id="wsStatus" class="ws-status">disconnected</div>
+      </div>
+      <div id="audioMeter" class="audio-meter"></div>
+    </div>
+    
+    <div class="error-container" id="errorContainer">
+      <div id="errorMessage" class="error-message"></div>
+      <button id="clearErrorButton" class="clear-button">Clear</button>
+    </div>
+    
+    <div class="transcription-container">
+      <h2>Transcription</h2>
+      <div id="transcription" class="transcription"></div>
+    </div>
+    
+    <div class="debug-container">
+      <h3>Debug Information</h3>
+      <div id="debugInfo" class="debug-info"></div>
+    </div>
+  </div>
+  
+  <script src="script.js" type="module"></script>
+</body>
+</html> 

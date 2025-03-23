@@ -18,12 +18,22 @@ class AudioRecorder: NSObject, ObservableObject {
     // Audio level monitoring
     private var audioMonitor: AudioLevelMonitor?
     
+    // MARK: - Audio Buffer for Streaming
+    
+    private var audioEngine: AVAudioEngine?
+    private var inputNode: AVAudioInputNode?
+    private var latestAudioBuffer: Data?
+    private var audioFormat: AVAudioFormat?
+    
     private override init() {
         super.init()
     }
     
     func startRecording() {
         do {
+            // Set up the audio engine for streaming
+            setupAudioEngineForStreaming()
+            
             // Create a temporary URL for the audio recording
             let tempDir = NSTemporaryDirectory()
             let tempURL = URL(fileURLWithPath: tempDir).appendingPathComponent("temp_recording.m4a")
@@ -92,11 +102,14 @@ class AudioRecorder: NSObject, ObservableObject {
                 logger.log("Failed to start audio recording", level: .error)
             }
         } catch {
-            logger.log("Audio recording error: \(error.localizedDescription)", level: .error)
+            logger.log("Audio session error: \(error.localizedDescription)", level: .error)
         }
     }
     
     func stopRecording() {
+        // Stop the audio engine
+        stopAudioEngine()
+        
         // Stop recording
         audioRecorder?.stop()
         audioRecorder = nil
@@ -195,6 +208,70 @@ class AudioRecorder: NSObject, ObservableObject {
             // Generate random values between 0.1 and 0.8 for a realistic audio simulation
             audioLevel = Float.random(in: 0.1...0.8)
         }
+    }
+    
+    func setupAudioEngineForStreaming() {
+        // Set up audio engine for real-time audio capture
+        audioEngine = AVAudioEngine()
+        inputNode = audioEngine?.inputNode
+        
+        // Configure the audio format (16-bit PCM, mono, 16kHz - suitable for speech recognition)
+        let sampleRate: Double = 16000.0
+        let channels: UInt32 = 1
+        let pcmFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: sampleRate,
+            channels: channels,
+            interleaved: true
+        )
+        
+        audioFormat = pcmFormat
+        
+        guard let format = pcmFormat else {
+            logger.log("Failed to create audio format", level: .error)
+            return
+        }
+        
+        // Install tap on input node to capture audio
+        inputNode?.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
+            guard let self = self else { return }
+            
+            // Convert audio buffer to Data
+            let channelData = buffer.int16ChannelData?[0]
+            let channelDataCount = Int(buffer.frameLength)
+            
+            if let channelData = channelData {
+                let data = Data(bytes: channelData, count: channelDataCount * 2) // 2 bytes per Int16
+                self.latestAudioBuffer = data
+            }
+        }
+        
+        // Start the audio engine
+        do {
+            try audioEngine?.start()
+            logger.log("Audio engine started for streaming", level: .info)
+        } catch {
+            logger.log("Failed to start audio engine: \(error)", level: .error)
+        }
+    }
+    
+    func getLatestAudioBuffer() -> Data? {
+        // If audio engine is not set up, set it up now
+        if audioEngine == nil {
+            setupAudioEngineForStreaming()
+        }
+        
+        // Return the latest captured audio data
+        return latestAudioBuffer
+    }
+    
+    func stopAudioEngine() {
+        audioEngine?.stop()
+        inputNode?.removeTap(onBus: 0)
+        audioEngine = nil
+        inputNode = nil
+        latestAudioBuffer = nil
+        logger.log("Audio engine stopped", level: .info)
     }
 }
 
