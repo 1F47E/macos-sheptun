@@ -112,7 +112,7 @@ class PopupWindowManager: ObservableObject {
         stopAudioLevelSimulation()
         
         // Get the API key from settings
-        let apiKey = settingsManager.openAIKey
+        let apiKey = settingsManager.getCurrentAPIKey()
         
         if apiKey.isEmpty {
             // Handle missing API key
@@ -159,11 +159,17 @@ class PopupWindowManager: ObservableObject {
                     self.logger.log("Error getting file size: \(error.localizedDescription)", level: .warning)
                 }
                 
+                // Get the current AI provider based on settings
+                let currentProvider = settingsManager.getCurrentAIProvider()
+                let apiProvider = AIProviderFactory.getProvider(type: currentProvider)
+                
                 // Attempt to transcribe the audio with the recorded file
-                let result = await openAIManager.transcribeAudioFile(
+                let result = await apiProvider.transcribeAudio(
                     audioFileURL: recordedFileURL,
                     apiKey: apiKey,
-                    model: .gpt4oMiniTranscribe
+                    model: settingsManager.transcriptionModel,
+                    temperature: settingsManager.transcriptionTemperature,
+                    language: "en"
                 )
                 
                 // Handle the result on the main thread

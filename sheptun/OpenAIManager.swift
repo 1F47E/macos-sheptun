@@ -1,7 +1,7 @@
 import Foundation
 import AVFoundation
 
-class OpenAIManager {
+class OpenAIManager: AIProvider {
     static let shared = OpenAIManager()
     
     private let logger = Logger.shared
@@ -10,6 +10,7 @@ class OpenAIManager {
     var lastError: String?
     var isRecordingAudio = false
     
+    // Deprecated - kept for compatibility but not used directly 
     enum TranscriptionModel: String {
         case whisper1 = "whisper-1"
         case gpt4oTranscribe = "gpt-4o-transcribe"
@@ -60,10 +61,16 @@ class OpenAIManager {
         let text: String
     }
     
+    // Get API key from environment variables
+    private func getAPIKeyFromEnvironment() -> String? {
+        return ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
+    }
     
-    // Test if the API key is valid
-    // by checking if the models endpoint returns a 200 status code
+    // Implementation of AIProvider protocol
     func testAPIKey(apiKey: String) async -> Bool {
+        // Try environment variable if empty string is provided
+        let key = apiKey.isEmpty ? getAPIKeyFromEnvironment() ?? apiKey : apiKey
+        
         guard let url = URL(string: "\(baseURL)/models") else {
             logger.log("Invalid URL for API key test", level: .error)
             return false
@@ -71,7 +78,7 @@ class OpenAIManager {
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.addValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
@@ -81,54 +88,28 @@ class OpenAIManager {
             }
             return false
         } catch {
-            logger.log("Error testing API key: \(error.localizedDescription)", level: .error)
+            logger.log("Error testing OpenAI API key: \(error.localizedDescription)", level: .error)
             return false
         }
     }
     
-    // Helper method to send audio file to OpenAI
-    func sendAudioToOpenAI(
-        fileToSend: URL,
+    // Implementation of AIProvider protocol
+    func transcribeAudio(
+        audioFileURL: URL,
         apiKey: String,
-        prompt: String = "",
-        language: String = "en"
-    ) async -> Result<String, Error> {
-        return await sendAudioToOpenAI(
-            fileToSend: fileToSend,
-            apiKey: apiKey,
-            model: getModelFromSettings(),
-            prompt: prompt,
-            language: language
-        )
-    }
-    
-    // Helper method to get the selected model from settings
-    private func getModelFromSettings() -> TranscriptionModel {
-        let modelString = settings.transcriptionModel
-        
-        if let model = TranscriptionModel(rawValue: modelString) {
-            return model
-        } else {
-            // Default to gpt-4o-mini-transcribe if we can't parse the setting
-            logger.log("Invalid model string in settings: \(modelString), defaulting to gpt-4o-mini-transcribe", level: .warning)
-            return .gpt4oMiniTranscribe
-        }
-    }
-        
-    // Helper method to send audio file to OpenAI
-    private func sendAudioToOpenAI(
-        fileToSend: URL,
-        apiKey: String,
-        model: TranscriptionModel,
-        prompt: String,
+        model: String,
+        temperature: Double,
         language: String
     ) async -> Result<String, Error> {
+        // Try environment variable if empty string is provided
+        let key = apiKey.isEmpty ? getAPIKeyFromEnvironment() ?? apiKey : apiKey
+        
         do {
             // Set up the request
             let url = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
             
             // Generate a unique boundary string for multipart/form-data
             let boundary = "Boundary-\(UUID().uuidString)"
@@ -140,7 +121,7 @@ class OpenAIManager {
             // Add model parameter
             data.append("--\(boundary)\r\n".data(using: .utf8)!)
             data.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-            data.append("\(model.rawValue)\r\n".data(using: .utf8)!)
+            data.append("\(model)\r\n".data(using: .utf8)!)
             
             // Add language parameter if specified
             if !language.isEmpty {
@@ -149,17 +130,10 @@ class OpenAIManager {
                 data.append("\(language)\r\n".data(using: .utf8)!)
             }
             
-            // Add prompt parameter if specified
-            if !prompt.isEmpty {
-                data.append("--\(boundary)\r\n".data(using: .utf8)!)
-                data.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
-                data.append("\(prompt)\r\n".data(using: .utf8)!)
-            }
-            
-            // Add temperature parameter (lower for more accurate transcription)
+            // Add temperature parameter
             data.append("--\(boundary)\r\n".data(using: .utf8)!)
             data.append("Content-Disposition: form-data; name=\"temperature\"\r\n\r\n".data(using: .utf8)!)
-            data.append("0.3\r\n".data(using: .utf8)!)
+            data.append("\(temperature)\r\n".data(using: .utf8)!)
             
             // Add response_format parameter
             data.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -168,10 +142,10 @@ class OpenAIManager {
             
             // Add file data
             data.append("--\(boundary)\r\n".data(using: .utf8)!)
-            data.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileToSend.lastPathComponent)\"\r\n".data(using: .utf8)!)
+            data.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(audioFileURL.lastPathComponent)\"\r\n".data(using: .utf8)!)
             
             // Set the correct Content-Type based on file extension
-            let fileExtension = fileToSend.pathExtension.lowercased()
+            let fileExtension = audioFileURL.pathExtension.lowercased()
             let contentType: String
             
             switch fileExtension {
@@ -196,7 +170,7 @@ class OpenAIManager {
             data.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
             
             // Read file data directly from the file
-            let fileData = try Data(contentsOf: fileToSend)
+            let fileData = try Data(contentsOf: audioFileURL)
             
             // Log file header for debugging (first 32 bytes as hex)
             let headerSize = min(fileData.count, 32)
@@ -218,38 +192,8 @@ class OpenAIManager {
             // Log request details for debugging
             logger.log("Sending API request to: \(url.absoluteString)", level: .debug)
             logger.log("Request headers: \(request.allHTTPHeaderFields ?? [:])", level: .debug)
-            logger.log("Request parameters: model=\(model.rawValue), language=\(language), temperature=0.3, response_format=text", level: .debug)
+            logger.log("Request parameters: model=\(model), language=\(language), temperature=\(temperature), response_format=text", level: .debug)
             logger.log("Audio file size: \(fileData.count) bytes, contentType: \(contentType), format: \(fileExtension)", level: .debug)
-            
-            // Generate a simplified multipart data representation for debugging
-            var simplifiedData = ""
-            simplifiedData += "--\(boundary)\r\n"
-            simplifiedData += "Content-Disposition: form-data; name=\"model\"\r\n\r\n"
-            simplifiedData += "\(model.rawValue)\r\n"
-            
-            if !language.isEmpty {
-                simplifiedData += "--\(boundary)\r\n"
-                simplifiedData += "Content-Disposition: form-data; name=\"language\"\r\n\r\n"
-                simplifiedData += "\(language)\r\n"
-            }
-            
-            simplifiedData += "--\(boundary)\r\n"
-            simplifiedData += "Content-Disposition: form-data; name=\"temperature\"\r\n\r\n"
-            simplifiedData += "0.3\r\n"
-            
-            simplifiedData += "--\(boundary)\r\n"
-            simplifiedData += "Content-Disposition: form-data; name=\"response_format\"\r\n\r\n"
-            simplifiedData += "text\r\n"
-            
-            simplifiedData += "--\(boundary)\r\n"
-            simplifiedData += "Content-Disposition: form-data; name=\"file\"; filename=\"\(fileToSend.lastPathComponent)\"\r\n"
-            simplifiedData += "Content-Type: \(contentType)\r\n\r\n"
-            simplifiedData += "[BINARY DATA: \(fileData.count) bytes]\r\n"
-            simplifiedData += "--\(boundary)--\r\n"
-            
-            logger.log("=== SIMPLIFIED MULTIPART REQUEST ===", level: .debug)
-            logger.log(simplifiedData, level: .debug)
-            logger.log("=== END SIMPLIFIED MULTIPART REQUEST ===", level: .debug)
             
             let startTime = Date()
             
@@ -308,22 +252,7 @@ class OpenAIManager {
                                 let errorCode = error["code"] as? String ?? "no_code"
                                 
                                 logger.log("API error: type=\(errorType), code=\(errorCode), message=\(message)", level: .error)
-                                logger.log("File details: name=\(fileToSend.lastPathComponent), size=\(fileData.count) bytes, contentType=\(contentType)", level: .error)
-                                
-                                // Generate a more detailed curl command for this specific error
-                                let fullCurlCommand = """
-                                curl -X POST https://api.openai.com/v1/audio/transcriptions \\
-                                  -H "Authorization: Bearer $OPENAI_API_KEY" \\
-                                  -H "Content-Type: multipart/form-data; boundary=\(boundary)" \\
-                                  -F "model=\(model.rawValue)" \\
-                                  -F "language=\(language)" \\
-                                  -F "temperature=0.3" \\
-                                  -F "response_format=text" \\
-                                  -F "file=@\(fileToSend.path)"
-                                """
-                                logger.log("=== DETAILED CURL COMMAND FOR ERROR ===", level: .debug)
-                                logger.log(fullCurlCommand, level: .debug)
-                                logger.log("=== END DETAILED CURL COMMAND ===", level: .debug)
+                                logger.log("File details: name=\(audioFileURL.lastPathComponent), size=\(fileData.count) bytes, contentType=\(contentType)", level: .error)
                                 
                                 return .failure(NSError(domain: "OpenAIManager", code: httpResponse.statusCode, userInfo: [
                                     NSLocalizedDescriptionKey: "Request failed with status code \(httpResponse.statusCode): \(message)",
@@ -343,21 +272,6 @@ class OpenAIManager {
             logger.log("Error during API request: \(error.localizedDescription)", level: .error)
             return .failure(error)
         }
-    }
-    
-    // For compatibility with existing code that uses transcribeAudioFile
-    func transcribeAudioFile(
-        audioFileURL: URL,
-        apiKey: String,
-        model: TranscriptionModel
-    ) async -> Result<String, Error> {
-        return await sendAudioToOpenAI(
-            fileToSend: audioFileURL,
-            apiKey: apiKey,
-            model: model,
-            prompt: "",
-            language: "en"
-        )
     }
     
     // Helper function to detect file format from data

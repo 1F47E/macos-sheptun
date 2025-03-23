@@ -11,15 +11,23 @@ class SettingsManager: ObservableObject {
     @Published var hotkeyModifiers: UInt = 0
     @Published var hotkeyKeyCode: UInt = 0
     @Published var openAIKey: String = ""
+    @Published var groqKey: String = ""
     @Published var selectedMicrophoneID: String = ""
-    @Published var transcriptionModel: String = "gpt-4o-mini-transcribe"
+    @Published var transcriptionModel: String = "whisper-large-v3-turbo"
+    @Published var transcriptionTemperature: Double = 0.3
+    @Published var selectedProvider: String = "groq"
+    @Published var isRecordingAudio = false
+    @Published var lastError: String?
     
     private enum Keys {
         static let hotkeyModifiers = "hotkeyModifiers"
         static let hotkeyKeyCode = "hotkeyKeyCode"
         static let openAIKey = "openAIKey"
+        static let groqKey = "groqKey"
         static let selectedMicrophoneID = "selectedMicrophoneID"
         static let transcriptionModel = "transcriptionModel"
+        static let transcriptionTemperature = "transcriptionTemperature"
+        static let selectedProvider = "selectedProvider"
     }
     
     init() {
@@ -36,18 +44,41 @@ class SettingsManager: ObservableObject {
         logger.log("Loaded hotkey: modifiers=\(hotkeyModifiers), keyCode=\(hotkeyKeyCode)")
         
         if let encryptedKey = defaults.string(forKey: Keys.openAIKey) {
-            logger.log("Found encrypted API key, attempting to decrypt")
+            logger.log("Found encrypted OpenAI API key, attempting to decrypt")
             openAIKey = decryptString(encryptedKey) ?? ""
             
             if openAIKey.isEmpty {
-                logger.log("Failed to decrypt API key", level: .error)
+                logger.log("Failed to decrypt OpenAI API key", level: .error)
             } else {
-                logger.log("Successfully decrypted API key: \(maskAPIKey(openAIKey))")
+                logger.log("Successfully decrypted OpenAI API key: \(maskAPIKey(openAIKey))")
             }
             
-            print("DEBUG: Loaded API key - \(maskAPIKey(openAIKey))")
+            print("DEBUG: Loaded OpenAI API key - \(maskAPIKey(openAIKey))")
         } else {
-            logger.log("No API key found in settings", level: .info)
+            logger.log("No OpenAI API key found in settings", level: .info)
+        }
+        
+        if let encryptedKey = defaults.string(forKey: Keys.groqKey) {
+            logger.log("Found encrypted Groq API key, attempting to decrypt")
+            groqKey = decryptString(encryptedKey) ?? ""
+            
+            if groqKey.isEmpty {
+                logger.log("Failed to decrypt Groq API key", level: .error)
+            } else {
+                logger.log("Successfully decrypted Groq API key: \(maskAPIKey(groqKey))")
+            }
+            
+            print("DEBUG: Loaded Groq API key - \(maskAPIKey(groqKey))")
+        } else {
+            logger.log("No Groq API key found in settings", level: .info)
+        }
+        
+        if let provider = defaults.string(forKey: Keys.selectedProvider) {
+            selectedProvider = provider
+            logger.log("Loaded selected provider: \(provider)")
+        } else {
+            selectedProvider = "groq" // Default to Groq when first opened
+            logger.log("No provider selected, defaulting to Groq", level: .info)
         }
         
         if let savedMicID = defaults.string(forKey: Keys.selectedMicrophoneID) {
@@ -71,8 +102,46 @@ class SettingsManager: ObservableObject {
             transcriptionModel = savedModel
             logger.log("Loaded transcription model: \(savedModel)")
         } else {
-            transcriptionModel = "gpt-4o-mini-transcribe"
+            // Set default model based on the selected provider
+            if selectedProvider == "openai" {
+                transcriptionModel = "gpt-4o-mini-transcribe"
+            } else {
+                transcriptionModel = "whisper-large-v3-turbo"
+            }
             logger.log("Using default transcription model: \(transcriptionModel)")
+        }
+        
+        // Load temperature or use default
+        transcriptionTemperature = defaults.double(forKey: Keys.transcriptionTemperature)
+        if transcriptionTemperature == 0.0 {
+            transcriptionTemperature = 0.3 // Default if not set
+        }
+        logger.log("Loaded transcription temperature: \(transcriptionTemperature)")
+    }
+    
+    // Method to get the default model for the current provider
+    func getDefaultModelForProvider(provider: String) -> String {
+        switch provider.lowercased() {
+        case "groq":
+            return "whisper-large-v3-turbo"
+        case "openai":
+            return "gpt-4o-mini-transcribe"
+        default:
+            return "gpt-4o-mini-transcribe"
+        }
+    }
+    
+    // Call this when provider changes to update the model appropriately
+    func updateModelForProvider() {
+        let previousModel = transcriptionModel
+        
+        // Only update the model if it's not already set for the current provider
+        // or if switching providers
+        if (selectedProvider == "openai" && !["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"].contains(transcriptionModel)) ||
+           (selectedProvider == "groq" && !["whisper-large-v3", "whisper-large-v3-turbo"].contains(transcriptionModel)) {
+            
+            transcriptionModel = getDefaultModelForProvider(provider: selectedProvider)
+            logger.log("Provider changed to \(selectedProvider), updated model from \(previousModel) to \(transcriptionModel)")
         }
     }
     
@@ -85,19 +154,54 @@ class SettingsManager: ObservableObject {
         logger.log("Saved hotkey: modifiers=\(hotkeyModifiers), keyCode=\(hotkeyKeyCode)")
         
         if !openAIKey.isEmpty {
-            logger.log("Encrypting and saving API key")
+            logger.log("Encrypting and saving OpenAI API key")
             defaults.set(encryptString(openAIKey), forKey: Keys.openAIKey)
-            print("DEBUG: Saved API key - \(maskAPIKey(openAIKey))")
-            logger.log("API key saved: \(maskAPIKey(openAIKey))")
+            print("DEBUG: Saved OpenAI API key - \(maskAPIKey(openAIKey))")
+            logger.log("OpenAI API key saved: \(maskAPIKey(openAIKey))")
         } else {
-            logger.log("No API key to save", level: .warning)
+            logger.log("No OpenAI API key to save", level: .warning)
         }
+        
+        if !groqKey.isEmpty {
+            logger.log("Encrypting and saving Groq API key")
+            defaults.set(encryptString(groqKey), forKey: Keys.groqKey)
+            print("DEBUG: Saved Groq API key - \(maskAPIKey(groqKey))")
+            logger.log("Groq API key saved: \(maskAPIKey(groqKey))")
+        } else {
+            logger.log("No Groq API key to save", level: .warning)
+        }
+        
+        defaults.set(selectedProvider, forKey: Keys.selectedProvider)
+        logger.log("Saved selected provider: \(selectedProvider)")
         
         defaults.set(selectedMicrophoneID, forKey: Keys.selectedMicrophoneID)
         logger.log("Saved microphone ID: \(selectedMicrophoneID)")
         
         defaults.set(transcriptionModel, forKey: Keys.transcriptionModel)
         logger.log("Saved transcription model: \(transcriptionModel)")
+        
+        defaults.set(transcriptionTemperature, forKey: Keys.transcriptionTemperature)
+        logger.log("Saved transcription temperature: \(transcriptionTemperature)")
+    }
+    
+    // Returns the current selected AIProviderType
+    func getCurrentAIProvider() -> AIProviderType {
+        switch selectedProvider.lowercased() {
+        case "groq":
+            return .groq
+        default:
+            return .openAI
+        }
+    }
+    
+    // Returns the appropriate API key for the current provider
+    func getCurrentAPIKey() -> String {
+        switch getCurrentAIProvider() {
+        case .groq:
+            return groqKey
+        case .openAI:
+            return openAIKey
+        }
     }
     
     struct MicrophoneDevice: Identifiable, Hashable {

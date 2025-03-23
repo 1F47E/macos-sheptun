@@ -3,7 +3,8 @@ import AVFoundation
 
 struct SettingsView: View {
     @StateObject private var settings = SettingsManager.shared
-    @State private var apiKeyInput: String = ""
+    @State private var openAIKeyInput: String = ""
+    @State private var groqKeyInput: String = ""
     @State private var availableMicrophones: [SettingsManager.MicrophoneDevice] = []
     @State private var isTestingAPIKey: Bool = false
     @State private var apiKeyTestResult: APIKeyTestResult?
@@ -22,248 +23,207 @@ struct SettingsView: View {
     
     var body: some View {
         VStack(spacing: 20) {
-            // Hotkey Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Hotkey")
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                
-                HotkeyRecorder(keyCode: $settings.hotkeyKeyCode,
-                             modifiers: $settings.hotkeyModifiers)
-                    .padding()
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(8)
-            }
-            .padding(.horizontal)
-            
-            // Microphone Selection Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Microphone")
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                
-                VStack {
-                    if availableMicrophones.isEmpty {
-                        Text("No microphones available")
-                            .foregroundColor(.secondary)
-                            .padding()
-                    } else {
-                        Picker("Select Microphone", selection: $settings.selectedMicrophoneID) {
-                            ForEach(availableMicrophones) { mic in
-                                Text(mic.name).tag(mic.id)
-                            }
+          
+            Form {
+                Group {
+                    Section(header: Text("Provider")) {
+                        Picker("Provider", selection: $settings.selectedProvider) {
+                            Text("OpenAI").tag("openai")
+                            Text("Groq").tag("groq")
                         }
-                        .labelsHidden()
-                        .onChange(of: settings.selectedMicrophoneID) { oldValue, newValue in
-                            logger.log("Selected microphone changed to ID: \(newValue)")
-                            setupAudioMonitoring()
+                        .pickerStyle(SegmentedPickerStyle())
+                        .onChange(of: settings.selectedProvider) { _ in
+                            settings.updateModelForProvider()
+                            settings.saveSettings()
                         }
-                        
-                        // Audio level indicator
-                        VStack(spacing: 4) {
-                            HStack(spacing: 2) {
-                                ForEach(0..<20, id: \.self) { index in
-                                    Rectangle()
-                                        .fill(barColor(for: index))
-                                        .frame(width: 10, height: 20)
-                                        .cornerRadius(2)
-                            }
-                        }
-                        
-                            if let errorMessage = audioMonitorError {
-                                Text(errorMessage)
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.center)
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                            }
-                        }
-                        .padding(.vertical, 8)
-                    }
-                }
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(8)
-            }
-            .padding(.horizontal)
-            
-            // Transcription Model Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Transcription Model")
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                
-                VStack {
-                    Picker("Select Model", selection: $settings.transcriptionModel) {
-                        Text("GPT-4o Mini Transcribe (Recommended)").tag("gpt-4o-mini-transcribe")
-                        Text("GPT-4o Transcribe").tag("gpt-4o-transcribe")
-                        Text("Whisper").tag("whisper-1")
-                    }
-                    .labelsHidden()
-                    .onChange(of: settings.transcriptionModel) { oldValue, newValue in
-                        logger.log("Selected transcription model changed to: \(newValue)")
                     }
                     
-                    Text("GPT-4o Mini Transcribe offers the best balance of speed and accuracy")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, 4)
-                }
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(8)
-            }
-            .padding(.horizontal)
-            
-            // API Key Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("OpenAI API Key")
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        TextField("Enter your OpenAI API key", text: $apiKeyInput)
-                            .font(.system(size: 16))
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .padding(.vertical, 4)
-                            .onChange(of: apiKeyInput) { oldValue, newValue in
-                                logger.log("API key input changed")
-                                apiKeyTestResult = nil // Clear previous test result
-                            }
-                        
-                        Button {
-                            logger.log("Test button pressed")
-                            testAPIKey()
-                        } label: {
-                            HStack(spacing: 4) {
-                                if isTestingAPIKey {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle())
-                                        .scaleEffect(0.7)
-                                        .frame(width: 16, height: 16)
-                                    Text("Testing")
-                                        .font(.system(size: 14))
-                                } else {
-                                    Text("Test")
-                                        .font(.system(size: 14))
+                    if settings.selectedProvider == "openai" {
+                        Section(header: Text("OpenAI API Key")) {
+                            SecureField("OpenAI API Key", text: $openAIKeyInput)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .onAppear {
+                                    openAIKeyInput = settings.openAIKey
                                 }
-                            }
-                            .frame(minWidth: 70)
-                            .contentShape(Rectangle())
+                                .onChange(of: openAIKeyInput) { newValue in
+                                    settings.openAIKey = newValue
+                                    settings.saveSettings()
+                                }
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(apiKeyInput.isEmpty || isTestingAPIKey)
+                        
+                        Section(header: Text("")) {
+                            Picker("Model", selection: $settings.transcriptionModel) {
+                                Text("GPT-4o Mini").tag("gpt-4o-mini-transcribe")
+                                Text("GPT-4o").tag("gpt-4o-transcribe")
+                                Text("Whisper").tag("whisper-1")
+                            }
+                            .pickerStyle(SegmentedPickerStyle())
+                            .onChange(of: settings.transcriptionModel) { _ in
+                                settings.saveSettings()
+                            }
+                            
+                            VStack(alignment: .leading) {
+                                Text("Temperature: \(settings.transcriptionTemperature, specifier: "%.2f")")
+                                Slider(value: $settings.transcriptionTemperature, in: 0.0...1.0, step: 0.05) { _ in
+                                    settings.saveSettings()
+                                }
+                                Text("Lower values give more accurate results, higher values more creative")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.top, 10)
+                        }
                     }
                     
-                    // API Key test result
-                    if let result = apiKeyTestResult {
-                        HStack(spacing: 6) {
-                            switch result {
-                            case .success:
+                    if settings.selectedProvider == "groq" {
+                        Section(header: Text("Groq API Key")) {
+                            SecureField("Groq API Key", text: $groqKeyInput)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .onAppear {
+                                    groqKeyInput = settings.groqKey
+                                }
+                                .onChange(of: groqKeyInput) { newValue in
+                                    settings.groqKey = newValue
+                                    settings.saveSettings()
+                                }
+                        }
+                        
+                        Section(header: Text("")) {
+                            Picker("Model", selection: $settings.transcriptionModel) {
+                                Text("Whisper Large v3").tag("whisper-large-v3")
+                                Text("Whisper Large v3 Turbo").tag("whisper-large-v3-turbo")
+                            }
+                            .pickerStyle(SegmentedPickerStyle())
+                            .onChange(of: settings.transcriptionModel) { _ in
+                                settings.saveSettings()
+                            }
+                            
+                            VStack(alignment: .leading) {
+                                Text("Temperature: \(settings.transcriptionTemperature, specifier: "%.2f")")
+                                Slider(value: $settings.transcriptionTemperature, in: 0.0...1.0, step: 0.05) { _ in
+                                    settings.saveSettings()
+                                }
+                                Text("Lower values give more accurate results, higher values more creative")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.top, 10)
+                        }
+                    }
+                    
+                    // Test API Key Button
+                    Button("Test API Key") {
+                        self.testAPIKey()
+                    }
+                    .disabled(isTestingAPIKey || (settings.selectedProvider == "openai" && settings.openAIKey.isEmpty) || (settings.selectedProvider == "groq" && settings.groqKey.isEmpty))
+                    
+                    if isTestingAPIKey {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                    } else if let result = apiKeyTestResult {
+                        switch result {
+                        case .success:
+                            HStack {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.green)
-                                Text("API key is valid")
+                                Text("API Key is valid")
                                     .foregroundColor(.green)
-                            case .networkError(let message):
-                                Image(systemName: "wifi.exclamationmark")
-                                    .foregroundColor(.orange)
-                                Text("Network issue: \(message)")
-                                    .foregroundColor(.orange)
-                                    .font(.system(size: 14))
-                            case .error(let message):
-                                Image(systemName: "exclamationmark.circle.fill")
+                            }
+                        case .error(let message):
+                            HStack {
+                                Image(systemName: "xmark.circle.fill")
                                     .foregroundColor(.red)
-                                Text(message)
+                                Text("Invalid API Key: \(message)")
                                     .foregroundColor(.red)
-                                    .font(.system(size: 14))
+                            }
+                        case .networkError(let message):
+                            HStack {
+                                Image(systemName: "wifi.slash")
+                                    .foregroundColor(.orange)
+                                Text("Network error: \(message)")
+                                    .foregroundColor(.orange)
                             }
                         }
-                        .padding(.vertical, 4)
+                    }
+                    
+                    // Microphone section
+                    Section(header: Text("Microphone")) {
+                        if availableMicrophones.isEmpty {
+                            Text("No microphones found")
+                                .foregroundColor(.red)
+                        } else {
+                            Picker("Select Input Device", selection: $settings.selectedMicrophoneID) {
+                                ForEach(availableMicrophones) { mic in
+                                    Text(mic.name).tag(mic.id)
+                                }
+                            }
+                            .onChange(of: settings.selectedMicrophoneID) { newID in
+                                settings.saveSettings()
+                                if !newID.isEmpty {
+                                    startAudioMonitoring(deviceID: newID)
+                                } else {
+                                    stopAudioMonitoring()
+                                }
+                            }
+                            
+                            // Audio level meter
+                            VStack(alignment: .leading) {
+                                Text("Microphone Level")
+                                    .font(.headline)
+                                    .padding(.top, 5)
+                                
+                                HStack(spacing: 2) {
+                                    ForEach(0..<20, id: \.self) { index in
+                                        Rectangle()
+                                            .fill(barColor(for: index))
+                                            .frame(height: 20)
+                                    }
+                                }
+                                .frame(height: 20)
+                                
+                                if let error = audioMonitorError {
+                                    Text("Error: \(error)")
+                                        .foregroundColor(.red)
+                                        .font(.caption)
+                                }
+                            }
+                            .padding(.vertical, 10)
+                        }
                     }
                 }
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(8)
+                
+                // ... hotkey section ...
             }
-            .padding(.horizontal)
+            .padding()
             
             Spacer()
-            
-            // Save Button
-            Button {
-                logger.log("Save button pressed")
-                if !apiKeyInput.isEmpty {
-                    logger.log("Updating API key from input field")
-                    settings.openAIKey = apiKeyInput
-                } else {
-                    logger.log("API key input is empty, not updating", level: .warning)
-                }
-                settings.saveSettings()
-                logger.log("Settings saved, dismissing settings view")
-                dismiss()
-            } label: {
-                Text("Save")
-                    .font(.headline)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 16)
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
-            .padding(.bottom, 20)
         }
-        .frame(width: 500, height: 520) // Increased height to accommodate the transcription model section
+        .frame(minWidth: 500, minHeight: 500)
         .onAppear {
-            logger.log("Settings view appeared")
-            apiKeyInput = settings.openAIKey
-            logger.log("API key loaded from settings: \(settings.maskAPIKey(apiKeyInput))")
-            
-            // Load available microphones
-            availableMicrophones = settings.getAvailableMicrophones()
-            logger.log("Loaded \(availableMicrophones.count) microphones")
-            
-            // If no microphone is selected but we have a system default, use that
-            if settings.selectedMicrophoneID.isEmpty && !availableMicrophones.isEmpty {
-                if let defaultID = settings.getDefaultSystemMicrophoneID() {
-                    // Check if the default microphone is in our list
-                    if availableMicrophones.contains(where: { $0.id == defaultID }) {
-                        settings.selectedMicrophoneID = defaultID
-                        logger.log("Auto-selected system default microphone: \(defaultID)")
-                    } else {
-                        // Fall back to first available
-                        settings.selectedMicrophoneID = availableMicrophones[0].id
-                        logger.log("System default not available, selected first microphone: \(availableMicrophones[0].name)")
-                    }
-                } else {
-                    // If no system default is available, select the first one
-                    settings.selectedMicrophoneID = availableMicrophones[0].id
-                    logger.log("No system default, auto-selected first microphone: \(availableMicrophones[0].name)")
-                }
+            loadMicrophones()
+            if !settings.selectedMicrophoneID.isEmpty {
+                startAudioMonitoring(deviceID: settings.selectedMicrophoneID)
             }
-            
-            // Setup audio level monitoring for the selected microphone
-            setupAudioMonitoring()
         }
         .onDisappear {
-            cleanup()
+            stopAudioMonitoring()
+            apiTestTask?.cancel()
         }
     }
     
     private func barColor(for index: Int) -> Color {
-        let threshold = Int(audioLevel * 20)
-        if index < threshold {
-            if index < 12 {
+        let threshold = Float(index) / 20.0
+        if audioLevel >= threshold {
+            if index < 7 {
                 return .green
-            } else if index < 16 {
+            } else if index < 15 {
                 return .yellow
             } else {
                 return .red
             }
+        } else {
+            return Color.gray.opacity(0.3)
         }
-        return Color(NSColor.lightGray)
     }
     
     private func setupAudioMonitoring() {
@@ -302,66 +262,58 @@ struct SettingsView: View {
     }
     
     private func testAPIKey() {
-        logger.log("testAPIKey() method called", level: .debug)
-        
-        guard !apiKeyInput.isEmpty else {
-            logger.log("Cannot test: API key is empty", level: .warning)
-            return
-        }
-        
-        logger.log("API key not empty, proceeding with test", level: .debug)
+        guard !isTestingAPIKey else { return }
         isTestingAPIKey = true
         apiKeyTestResult = nil
         
-        // Cancel any previous task
         apiTestTask?.cancel()
-        
-        logger.log("Creating async Task to test API key", level: .debug)
         apiTestTask = Task {
-            logger.log("Inside async Task, about to call OpenAIManager.testAPIKey", level: .debug)
-            let result = await OpenAIManager.shared.testAPIKey(apiKey: apiKeyInput)
-            logger.log("Received result from OpenAIManager.testAPIKey", level: .debug)
-            
-            // Ensure we're not cancelled
-            if !Task.isCancelled {
-                // Switch back to the main thread to update UI
-                await MainActor.run {
-                    logger.log("Inside MainActor.run", level: .debug)
+            defer { 
+                DispatchQueue.main.async {
                     isTestingAPIKey = false
-                    
-                    if result {
-                        logger.log("API key test successful", level: .info)
+                }
+            }
+            
+            if settings.selectedProvider == "openai" && settings.openAIKey.isEmpty {
+                DispatchQueue.main.async {
+                    apiKeyTestResult = .error("API Key is empty")
+                }
+                return
+            }
+            
+            if settings.selectedProvider == "groq" && settings.groqKey.isEmpty {
+                DispatchQueue.main.async {
+                    apiKeyTestResult = .error("API Key is empty")
+                }
+                return
+            }
+            
+            let apiKey = settings.getCurrentAPIKey()
+            let provider = settings.getCurrentAIProvider()
+            let aiManager = AIProviderFactory.getProvider(type: provider)
+            
+            do {
+                let isValid = await aiManager.testAPIKey(apiKey: apiKey)
+                
+                if Task.isCancelled { return }
+                
+                DispatchQueue.main.async {
+                    if isValid {
                         apiKeyTestResult = .success
                     } else {
-                        logger.log("API key test failed", level: .error)
-                        apiKeyTestResult = .error("Invalid API key")
+                        apiKeyTestResult = .error("Invalid key or insufficient permissions")
                     }
                 }
-            } else {
-                logger.log("Task was cancelled", level: .warning)
+            } catch {
+                if Task.isCancelled { return }
+                
+                DispatchQueue.main.async {
+                    apiKeyTestResult = .networkError(error.localizedDescription)
+                }
             }
         }
-        logger.log("Async Task created", level: .debug)
     }
-    
-    private func simplifyNetworkErrorMessage(_ message: String) -> String {
-        // Extract the most relevant part of network error messages
-        if message.contains("specified hostname could not be found") {
-            return "Could not connect to OpenAI API"
-        } else if message.contains("The Internet connection appears to be offline") {
-            return "Internet connection is offline"
-        } else if message.contains("timed out") {
-            return "Connection timed out"
-        }
-        
-        // Return a shorter version of the original message if it's too long
-        let maxLength = 50
-        if message.count > maxLength {
-            return String(message.prefix(maxLength)) + "..."
-        }
-        
-        return message
-    }
+
     
     private func maskAPIKey(_ key: String) -> String {
         guard key.count > 8 else {
@@ -384,7 +336,63 @@ struct SettingsView: View {
         audioMonitor?.stopMonitoring()
         audioMonitor = nil
     }
+    
+    private func loadMicrophones() {
+        availableMicrophones = settings.getAvailableMicrophones()
+        logger.log("Loaded \(availableMicrophones.count) microphones")
+        
+        // If no microphone is selected but we have a system default, use that
+        if settings.selectedMicrophoneID.isEmpty && !availableMicrophones.isEmpty {
+            if let defaultID = settings.getDefaultSystemMicrophoneID() {
+                // Check if the default microphone is in our list
+                if availableMicrophones.contains(where: { $0.id == defaultID }) {
+                    settings.selectedMicrophoneID = defaultID
+                    logger.log("Auto-selected system default microphone: \(defaultID)")
+                } else {
+                    // Fall back to first available
+                    settings.selectedMicrophoneID = availableMicrophones[0].id
+                    logger.log("System default not available, selected first microphone: \(availableMicrophones[0].name)")
+                }
+            } else {
+                // If no system default is available, select the first one
+                settings.selectedMicrophoneID = availableMicrophones[0].id
+                logger.log("No system default, auto-selected first microphone: \(availableMicrophones[0].name)")
+            }
+        }
+    }
+    
+    private func startAudioMonitoring(deviceID: String) {
+        // Stop any existing audio monitoring
+        stopAudioMonitoring()
+        
+        // Create a new audio monitor with the numeric device ID
+        if let numericID = UInt32(deviceID) {
+            audioMonitor = AudioLevelMonitor(deviceID: numericID)
+            audioMonitor?.startMonitoring(
+                levelUpdateHandler: { level in
+                    DispatchQueue.main.async {
+                        self.audioLevel = level
+                        self.audioMonitorError = nil
+                    }
+                },
+                errorHandler: { error in
+                    DispatchQueue.main.async {
+                        self.audioMonitorError = error
+                        self.audioLevel = 0
+                    }
+                }
+            )
+        } else {
+            audioMonitorError = "Invalid device ID format"
+        }
+    }
+    
+    private func stopAudioMonitoring() {
+        audioMonitor?.stopMonitoring()
+        audioMonitor = nil
+    }
 }
 
 // The AudioLevelMonitor class has been moved to its own file
+// ... existing code ... 
 // ... existing code ... 

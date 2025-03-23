@@ -107,12 +107,14 @@ struct TranscribeDebugView: View {
                 Spacer()
                 
                 Picker("", selection: $viewModel.selectedModel) {
-                    Text("GPT-4o-transcribe").tag(OpenAIManager.TranscriptionModel.gpt4oTranscribe)
-                    Text("GPT-4o-mini-transcribe").tag(OpenAIManager.TranscriptionModel.gpt4oMiniTranscribe)
-                    Text("Whisper").tag(OpenAIManager.TranscriptionModel.whisper1)
+                    Text("GPT-4o-transcribe").tag("gpt-4o-transcribe")
+                    Text("GPT-4o-mini-transcribe").tag("gpt-4o-mini-transcribe")
+                    Text("Whisper").tag("whisper-1")
+                    Text("Whisper Large v3").tag("whisper-large-v3")
+                    Text("Whisper Large v3 Turbo").tag("whisper-large-v3-turbo")
                 }
                 .pickerStyle(.menu)
-                .frame(width: 130)
+                .frame(width: 180)
                 .disabled(viewModel.isRecordingAudio || viewModel.isTranscribing || viewModel.isInitializingRecording)
             }
             
@@ -354,8 +356,7 @@ class TranscribeViewModel: ObservableObject {
     // MARK: - Properties
     
     @ObservedObject private var audioRecorder = AudioRecorder.shared
-    private let openAIManager = OpenAIManager.shared
-    @ObservedObject private var settingsManager = SettingsManager.shared
+    private let settingsManager = SettingsManager.shared
     private let logger = Logger.shared
     
     // Recording state
@@ -378,7 +379,7 @@ class TranscribeViewModel: ObservableObject {
     @Published var microphone = "Default"
     
     // API info
-    @Published var selectedModel: OpenAIManager.TranscriptionModel = .gpt4oMiniTranscribe
+    @Published var selectedModel: String = "gpt-4o-mini-transcribe"
     @Published var apiResponseTime: Double = 0.0
     @Published var recordedAudioAvailable: Bool = false
     @Published var recordedAudioPath: String?
@@ -404,6 +405,11 @@ class TranscribeViewModel: ObservableObject {
     @Published var sessionDurationFormatted = "00:00"
     @Published var recordedAudioSizeFormatted: String = "0.0"
     
+    // Initialize selected model from settings
+    init() {
+        selectedModel = settingsManager.transcriptionModel
+    }
+    
     func setupForView() {
         setupAudioLevelMonitoring()
         startStatsUpdateTimer()
@@ -411,7 +417,7 @@ class TranscribeViewModel: ObservableObject {
         // Reset all states
         isInitializingRecording = false
         isTranscribing = false
-        isRecordingAudio = openAIManager.isRecordingAudio
+        isRecordingAudio = settingsManager.isRecordingAudio
         
         // Check if we have stored audio file
         updateRecordedAudioInfo()
@@ -431,7 +437,7 @@ class TranscribeViewModel: ObservableObject {
             
             // Update properties from OpenAIManager
             DispatchQueue.main.async {
-                self.isRecordingAudio = self.openAIManager.isRecordingAudio
+                self.isRecordingAudio = self.settingsManager.isRecordingAudio
                 
                 // Update status text
                 if self.isInitializingRecording {
@@ -449,7 +455,7 @@ class TranscribeViewModel: ObservableObject {
                 }
                 
                 // Check if there's an error from OpenAIManager
-                if let error = self.openAIManager.lastError, !error.isEmpty, error != self.lastError {
+                if let error = self.settingsManager.lastError, !error.isEmpty, error != self.lastError {
                     self.lastError = error
                     self.logger.log("Error from OpenAIManager: \(error)", level: .error)
                 }
@@ -615,8 +621,8 @@ class TranscribeViewModel: ObservableObject {
             return
         }
         
-        // Get OpenAI API key from settings
-        let apiKey = settingsManager.openAIKey
+        // Get API key from settings
+        let apiKey = settingsManager.getCurrentAPIKey()
         
         guard !apiKey.isEmpty else {
             statusText = "Error: No API Key"
@@ -634,7 +640,9 @@ class TranscribeViewModel: ObservableObject {
             self.statusText = "Transcribing..."
         }
         
-        let model = selectedModel
+        // Get the current provider
+        let providerType = settingsManager.getCurrentAIProvider()
+        let provider = AIProviderFactory.getProvider(type: providerType)
         
         // Cancel any existing tasks
         transcriptionTask?.cancel()
@@ -650,41 +658,33 @@ class TranscribeViewModel: ObservableObject {
             guard let self = self else { return }
             
             do {
-                // Update UI to show model being used
-                await MainActor.run {
-                    self.statusText = "Transcribing with \(model.rawValue)..."
-                }
-                
-                // Start transcription
-                self.logger.log("Starting transcription with model: \(model.rawValue) from file: \(recordedFilePath)", level: .info)
-                let result = await self.openAIManager.transcribeAudioFile(
+                // Process the audio and send it to the selected AI provider
+                let result = await provider.transcribeAudio(
                     audioFileURL: recordedFileURL,
                     apiKey: apiKey,
-                    model: model
+                    model: selectedModel,
+                    temperature: settingsManager.transcriptionTemperature,
+                    language: "en"
                 )
                 
-                // Calculate API response time
+                // Calculate response time
                 let responseTime = Date().timeIntervalSince(startTime)
                 
-                DispatchQueue.main.async {
+                // Update the UI on the main thread
+                await MainActor.run {
                     self.isTranscribing = false
                     self.apiResponseTime = responseTime
                     
-                    self.logger.log("API response time: \(responseTime) seconds", level: .info)
-                    
                     switch result {
                     case .success(let text):
-                        if !self.transcriptionText.isEmpty {
-                            self.transcriptionText.append("\n\n")
-                        }
-                        self.transcriptionText.append(text)
-                        self.logger.log("Transcription completed: \(text)", level: .info)
-                        self.statusText = "Completed"
+                        self.transcriptionText = text
+                        self.statusText = "Transcription completed"
+                        self.logger.log("Transcription successful: \(responseTime) seconds", level: .info)
                         
                     case .failure(let error):
+                        self.statusText = "Transcription failed"
                         self.lastError = error.localizedDescription
                         self.logger.log("Transcription error: \(error)", level: .error)
-                        self.statusText = "Error"
                     }
                 }
             } catch {
@@ -842,47 +842,51 @@ class TranscribeViewModel: ObservableObject {
                     logger.log("Error getting file attributes: \(error)", level: .warning)
                 }
                 
+                // Get the current API key
+                let apiKey = settingsManager.getCurrentAPIKey()
+                
                 // If we have an API key, proceed
-                guard !settingsManager.openAIKey.isEmpty else {
+                guard !apiKey.isEmpty else {
                     await MainActor.run {
-                        errorMessage = "Please set your OpenAI API key in settings"
+                        errorMessage = "Please set your API key in settings"
                         isTranscribing = false
                     }
                     return
                 }
                 
+                // Get the AI provider
+                let providerType = settingsManager.getCurrentAIProvider()
+                let provider = AIProviderFactory.getProvider(type: providerType)
+                
                 let startTime = Date()
-                let result = await openAIManager.transcribeAudioFile(
+                let result = await provider.transcribeAudio(
                     audioFileURL: recordedFileURL,
-                    apiKey: settingsManager.openAIKey,
-                    model: selectedModel
+                    apiKey: apiKey,
+                    model: selectedModel,
+                    temperature: settingsManager.transcriptionTemperature,
+                    language: "en"
                 )
                 
                 let elapsed = Date().timeIntervalSince(startTime)
                 
+                // Process the result
                 await MainActor.run {
                     transcriptionDuration = elapsed
                     
                     switch result {
-                    case .success(let transcription):
-                        transcribedText = transcription
-                        processedDataSize = transcription.count
-                        logger.log("Transcription success: \(transcription)", level: .info)
-                        
-                        // Copy to clipboard automatically
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(transcription, forType: .string)
-                        
+                    case .success(let text):
+                        transcribedText = text
+                        errorMessage = ""
                     case .failure(let error):
-                        errorMessage = error.localizedDescription
-                        logger.log("Transcription error: \(error)", level: .error)
+                        errorMessage = "Error: \(error.localizedDescription)"
+                        transcribedText = ""
                     }
                     
                     isTranscribing = false
                 }
             } catch {
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
+                    errorMessage = "Error: \(error.localizedDescription)"
                     isTranscribing = false
                 }
             }
