@@ -43,8 +43,7 @@ class PopupWindowManager: ObservableObject {
         if let window = popupWindow {
             logger.log("Reusing existing popup window", level: .debug)
             positionWindowAtTopCenter(window)
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            window.orderFront(nil)
             
             // Reset state to recording
             currentState = .recording
@@ -53,7 +52,7 @@ class PopupWindowManager: ObservableObject {
         
         logger.log("Creating new recording session window", level: .info)
         
-        // Create a window without standard decorations
+        // Create a window without standard decorations and non-activating
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 180),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -75,24 +74,12 @@ class PopupWindowManager: ObservableObject {
         // Position window at top center of the screen
         positionWindowAtTopCenter(window)
         
-        // Show window and start recording
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // Show window without activating app or making window key
+        window.orderFront(nil)
         
         // Start audio recording and reset state
         currentState = .recording
         audioRecorder.startRecording()
-        
-        // Only fall back to simulation if real audio monitoring fails
-        // We'll wait a bit to see if real monitoring is working
-        // DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-        //     if self?.audioRecorder.audioLevel ?? 0 <= 0.01 {
-        //         self?.startAudioLevelSimulation()
-        //         self?.logger.log("Falling back to audio level simulation", level: .warning)
-        //     } else {
-        //         self?.logger.log("Using real audio levels from microphone", level: .info)
-        //     }
-        // }
         
         // Keep a reference to the window
         self.popupWindow = window
@@ -178,16 +165,30 @@ class PopupWindowManager: ObservableObject {
                     case .success(let transcription):
                         // Transcription successful
                         self.logger.log("Transcription successful: \(transcription)", level: .info)
-                        self.currentState = .completed(transcription)
                         
                         // Copy to clipboard
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(transcription, forType: .string)
                         
-                        // Close window after a short delay
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                            self?.closePopupWindow()
+                        // Simulate Cmd+V paste keystroke
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            let source = CGEventSource(stateID: .hidSystemState)
+                            
+                            // Create a 'v' key down event with command modifier
+                            let cmdV = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
+                            cmdV?.flags = .maskCommand
+                            
+                            // Post the event
+                            cmdV?.post(tap: .cghidEventTap)
+                            
+                            // Create a 'v' key up event
+                            let cmdVUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
+                            cmdVUp?.flags = .maskCommand
+                            cmdVUp?.post(tap: .cghidEventTap)
                         }
+                        
+                        // Close window immediately
+                        self.closePopupWindow()
                         
                     case .failure(let error):
                         // Transcription failed
