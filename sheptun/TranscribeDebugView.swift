@@ -107,9 +107,9 @@ struct TranscribeDebugView: View {
                 Spacer()
                 
                 Picker("", selection: $viewModel.selectedModel) {
-                    Text("Whisper").tag(OpenAIManager.TranscriptionModel.whisper1)
                     Text("GPT-4o").tag(OpenAIManager.TranscriptionModel.gpt4oTranscribe)
                     Text("GPT-4o Mini").tag(OpenAIManager.TranscriptionModel.gpt4oMiniTranscribe)
+                    Text("Whisper").tag(OpenAIManager.TranscriptionModel.whisper1)
                 }
                 .pickerStyle(.menu)
                 .frame(width: 130)
@@ -365,7 +365,7 @@ class TranscribeViewModel: ObservableObject {
     @Published var sessionStartTime: Date?
     @Published var sessionDurationFormatted = "00:00"
     @Published var lastError = ""
-    @Published var selectedModel: OpenAIManager.TranscriptionModel = .whisper1
+    @Published var selectedModel: OpenAIManager.TranscriptionModel = .gpt4oTranscribe
     @Published var isTranscribing = false
     @Published var isInitializingRecording = false
     @Published var recordedAudioSize: Int = 0
@@ -465,8 +465,11 @@ class TranscribeViewModel: ObservableObject {
     func startRecording() {
         guard !isRecordingAudio && !isInitializingRecording && !isTranscribing else { return }
         
-        // Clear previous error
+        // Clear errors from any previous session
         lastError = ""
+        
+        // Check if we need to clean up temporary files
+        cleanupTemporaryFiles()
         
         // Set initializing state
         DispatchQueue.main.async {
@@ -477,7 +480,7 @@ class TranscribeViewModel: ObservableObject {
         // Cancel any existing task
         recordingTask?.cancel()
         
-        // Start recording in a background task
+        // Create a task to handle initialization
         recordingTask = Task { [weak self] in
             guard let self = self else { return }
             
@@ -658,7 +661,10 @@ class TranscribeViewModel: ObservableObject {
             
             do {
                 let tempDir = NSTemporaryDirectory()
-                let tempURL = URL(fileURLWithPath: tempDir).appendingPathComponent("recording.wav")
+                let tempFilename = "recording_\(Int(Date().timeIntervalSince1970)).wav"
+                let tempURL = URL(fileURLWithPath: tempDir).appendingPathComponent(tempFilename)
+                
+                logger.log("Creating temporary audio file at: \(tempURL.path)", level: .debug)
                 
                 // Create a WAV file from the PCM data if we have format information
                 if let audioFormat = self.recordedAudioFormat {
@@ -666,17 +672,23 @@ class TranscribeViewModel: ObservableObject {
                     
                     if let wavData = self.openAIManager.createWavData(fromPCMData: audioData, format: audioFormat) {
                         try wavData.write(to: tempURL)
-                        self.logger.log("Created WAV file with size: \(wavData.count) bytes", level: .debug)
+                        self.logger.log("Created WAV file with size: \(wavData.count) bytes at \(tempURL.path)", level: .debug)
                     } else {
-                        self.logger.log("Failed to create WAV file, attempting direct write", level: .warning)
+                        self.logger.log("Failed to create WAV file, attempting direct write to \(tempURL.path)", level: .warning)
                         try audioData.write(to: tempURL)
                     }
                 } else {
-                    self.logger.log("No audio format available, writing raw data", level: .warning)
+                    self.logger.log("No audio format available, writing raw data to \(tempURL.path)", level: .warning)
                     try audioData.write(to: tempURL)
                 }
                 
+                // Update UI to show model being used
+                await MainActor.run {
+                    self.statusText = "Transcribing with \(model.rawValue)..."
+                }
+                
                 // Start transcription
+                self.logger.log("Starting transcription with model: \(model.rawValue)", level: .info)
                 let result = await self.openAIManager.transcribeAudioFile(
                     audioFileURL: tempURL,
                     apiKey: apiKey,
@@ -697,7 +709,7 @@ class TranscribeViewModel: ObservableObject {
                     switch result {
                     case .success(let text):
                         if !self.transcriptionText.isEmpty {
-                            self.transcriptionText.append("\n")
+                            self.transcriptionText.append("\n\n")
                         }
                         self.transcriptionText.append(text)
                         self.logger.log("Transcription completed: \(text)", level: .info)
@@ -709,10 +721,6 @@ class TranscribeViewModel: ObservableObject {
                         self.statusText = "Error"
                     }
                 }
-                
-                // Clean up the temporary file
-                try? FileManager.default.removeItem(at: tempURL)
-                
             } catch {
                 DispatchQueue.main.async {
                     self.isTranscribing = false
@@ -815,5 +823,29 @@ class TranscribeViewModel: ObservableObject {
     
     deinit {
         cleanup()
+    }
+    
+    private func cleanupTemporaryFiles() {
+        // Get the temporary directory
+        let tempDir = NSTemporaryDirectory()
+        let tempDirURL = URL(fileURLWithPath: tempDir)
+        
+        do {
+            // Get all files in the temporary directory
+            let fileURLs = try FileManager.default.contentsOfDirectory(at: tempDirURL, includingPropertiesForKeys: nil)
+            
+            // Find and delete only our recording WAV files, preserving the M4A file
+            for fileURL in fileURLs {
+                // Only clean up WAV files that we create, not the M4A file
+                if fileURL.lastPathComponent.starts(with: "recording_") && fileURL.pathExtension.lowercased() == "wav" {
+                    try FileManager.default.removeItem(at: fileURL)
+                    logger.log("Cleaned up previous recording file: \(fileURL.path)", level: .debug)
+                }
+            }
+            
+            logger.log("Temporary directory cleanup completed. M4A file preserved for reuse.", level: .debug)
+        } catch {
+            logger.log("Error cleaning up temporary files: \(error.localizedDescription)", level: .warning)
+        }
     }
 } 
