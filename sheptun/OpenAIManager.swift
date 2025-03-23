@@ -136,7 +136,7 @@ class OpenAIManager {
     // Transcribe an audio file using the OpenAI API
     func transcribeAudioFile(audioFileURL: URL, 
                              apiKey: String,
-                             model: TranscriptionModel = .gpt4oTranscribe,
+                             model: TranscriptionModel = .gpt4oMiniTranscribe,
                              prompt: String = "",
                              language: String = "en") async -> Result<String, APIError> {
         // Check if there's an M4A file which contains the full recording

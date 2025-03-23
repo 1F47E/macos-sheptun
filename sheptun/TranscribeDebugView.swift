@@ -107,8 +107,8 @@ struct TranscribeDebugView: View {
                 Spacer()
                 
                 Picker("", selection: $viewModel.selectedModel) {
-                    Text("GPT-4o").tag(OpenAIManager.TranscriptionModel.gpt4oTranscribe)
-                    Text("GPT-4o Mini").tag(OpenAIManager.TranscriptionModel.gpt4oMiniTranscribe)
+                    Text("GPT-4o-transcribe").tag(OpenAIManager.TranscriptionModel.gpt4oTranscribe)
+                    Text("GPT-4o-mini-transcribe").tag(OpenAIManager.TranscriptionModel.gpt4oMiniTranscribe)
                     Text("Whisper").tag(OpenAIManager.TranscriptionModel.whisper1)
                 }
                 .pickerStyle(.menu)
