@@ -11,7 +11,7 @@ public struct ParticleWaveEffect: View {
     // MARK: - Customization Options
     
     /// Number of particles in the effect
-    public var particleCount: Int = 35
+    public var particleCount: Int = 42
     
     /// Base color for particles (modified based on intensity)
     @State public var baseColor: Color = .blue
@@ -134,9 +134,9 @@ public struct ParticleWaveEffect: View {
                         self.enableMovement = value
                     }
                     
-                    if let value = jsonSettings["isLoadingMode"] as? Bool {
-                        self.isLoading = value
-                    }
+                    // isLoadingMode is not loaded from settings anymore
+                    // Always start in normal mode
+                    self.isLoading = false
                 }
             } catch {
                 Logger.shared.log("Failed to parse JSON settings: \(error)", level: .error)
@@ -204,12 +204,9 @@ public struct ParticleWaveEffect: View {
                 Logger.shared.log("Missing enableMovement in settings", level: .debug)
             }
             
-            if let loadingMode = savedSettings["isLoadingMode"] as? Bool {
-                self.isLoading = loadingMode
-                Logger.shared.log("Loaded isLoadingMode: \(loadingMode)", level: .debug)
-            } else {
-                Logger.shared.log("Missing isLoadingMode in settings", level: .debug)
-            }
+            // isLoadingMode is not loaded from settings anymore
+            // Always start in normal mode
+            self.isLoading = false
             
             // Load colors
             if let redBase = savedSettings["baseColorRed"] as? Double,
@@ -274,31 +271,45 @@ public struct ParticleWaveEffect: View {
                 }
                 .onChange(of: timeline.date) { _, _ in
                     // Update animation state
-                    updateParticles(in: geometry.size)
+                    var mutableSelf = self
+                    mutableSelf.updateParticles(in: geometry.size)
                 }
                 .onChange(of: geometry.size) { _, newSize in
                     // Reset if container size changes
-                    resetParticles(in: newSize)
+                    var mutableSelf = self
+                    mutableSelf.resetParticles(in: newSize)
                 }
                 .onChange(of: intensity) { oldValue, newValue in
                     // React to intensity changes
                     if abs(oldValue - newValue) > 0.1 {
-                        updateParticleColors()
+                        var mutableSelf = self
+                        mutableSelf.updateParticleColors()
                         
                         // Add burst of particles on significant increases
                         if newValue > oldValue + 0.3 {
-                            addEnergyBurst(in: geometry.size)
+                            mutableSelf.addEnergyBurst(in: geometry.size)
                         }
                     }
+                }
+                .onChange(of: isLoading) { _, newValue in
+                    // React to loading mode changes
+                    var mutableSelf = self
+                    mutableSelf.setLoadingMode(newValue)
                 }
                 .onAppear {
                     if isFirstAppear {
                         // Initialize on first appear
-                        resetParticles(in: geometry.size)
-                        isFirstAppear = false
+                        var mutableSelf = self
+                        mutableSelf.resetParticles(in: geometry.size)
+                        mutableSelf.isFirstAppear = false
                         
                         // Listen for settings changes
-                        setupNotificationObserver()
+                        mutableSelf.setupNotificationObserver()
+                        
+                        // Apply initial loading mode if needed
+                        if isLoading {
+                            mutableSelf.setLoadingMode(true)
+                        }
                     }
                 }
                 .onDisappear {
@@ -320,22 +331,86 @@ public struct ParticleWaveEffect: View {
     /// Toggle loading mode
     /// - Parameter isLoading: Whether loading mode should be enabled
     public mutating func setLoadingMode(_ isLoading: Bool) {
+        // If no change, do nothing
+        if self.isLoading == isLoading {
+            return
+        }
+        
         self.isLoading = isLoading
+        
         // Reset loading phase when toggling
         if isLoading {
             loadingPhase = 0
+            
+            // If we have more than 10 particles, keep only the first 10
+            if particles.count > 10 {
+                particles = Array(particles.prefix(10))
+            }
+            
+            // Boost speeds for more dynamic loading animation
+            for i in 0..<particles.count {
+                var particle = particles[i]
+                particle.speed *= 1.5
+                particles[i] = particle
+            }
+        } else {
+            // When exiting loading mode, ensure we have enough particles
+            if particles.count < particleCount {
+                let additionalNeeded = particleCount - particles.count
+                
+                for _ in 0..<additionalNeeded {
+                    // Generate new particles off-screen to create a flowing-in effect
+                    let newParticle = createRandomParticle(offScreen: true)
+                    particles.append(newParticle)
+                }
+            }
         }
+    }
+    
+    // Helper to create a random particle, optionally placing it off-screen
+    private func createRandomParticle(offScreen: Bool = false) -> Particle {
+        let position: CGPoint
+        let phase = Double.random(in: 0...2 * .pi)
+        let size = CGFloat.random(in: 3...maxParticleSize) * (0.5 + CGFloat(intensity) * 0.5)
+        let speed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2
+        let color = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
+        let opacity = Double.random(in: 0.5...0.9)
+        
+        if offScreen {
+            // Position just off the left edge
+            position = CGPoint(x: -size, y: 20 + CGFloat.random(in: 0...20))
+        } else {
+            // Normal random position
+            position = CGPoint(x: CGFloat.random(in: 0...100), y: 20 + CGFloat.random(in: -10...10))
+        }
+        
+        return Particle(
+            position: position,
+            size: size,
+            speed: speed,
+            phase: phase,
+            color: color,
+            opacity: opacity
+        )
     }
     
     // MARK: - Private Methods
     
-    private func setupNotificationObserver() {
+    private mutating func setupNotificationObserver() {
         // Register for settings change notifications
         NotificationCenter.default.addObserver(forName: NSNotification.Name("AnimationSettingsChanged"), object: nil, queue: .main) { notification in
             Logger.shared.log("Received AnimationSettingsChanged notification in ParticleWaveEffect", level: .info)
             
             if let settings = notification.userInfo as? [String: Any] {
                 Logger.shared.log("Updating animation with new settings", level: .debug)
+                
+                // Check if loading mode is specified in the notification
+                if let isLoadingValue = settings["isLoadingMode"] as? Bool {
+                    Logger.shared.log("Notification contains isLoadingMode: \(isLoadingValue)", level: .debug)
+                    // Can't directly modify self here since notification callbacks are separate functions
+                    // Store in UserDefaults for next animation frame to pick up
+                    UserDefaults.standard.set(settings, forKey: "animationSettings")
+                }
                 
                 // Store settings in UserDefaults for the next animation frame
                 UserDefaults.standard.set(settings, forKey: "animationSettings")
@@ -390,6 +465,8 @@ public struct ParticleWaveEffect: View {
             self.enableMovement = enableMove
             Logger.shared.log("Updated enableMovement: \(enableMove)", level: .debug)
         }
+        
+        // Don't update isLoading from settings
         
         // Update colors
         if let redBase = settings["baseColorRed"] as? Double,
@@ -454,7 +531,7 @@ public struct ParticleWaveEffect: View {
     }
     
     /// Create a burst of particles when intensity suddenly increases
-    private func addEnergyBurst(in size: CGSize) {
+    private mutating func addEnergyBurst(in size: CGSize) {
         let burstCount = Int(CGFloat(intensity) * 5)
         let centerY = size.height / 2
         
@@ -482,8 +559,11 @@ public struct ParticleWaveEffect: View {
     }
     
     /// Reset and reinitialize all particles
-    private func resetParticles(in size: CGSize) {
+    private mutating func resetParticles(in size: CGSize) {
         particles = []
+        // Reset loading mode when initializing particles
+        isLoading = false
+        loadingPhase = 0
         
         // Create initial set of particles
         for _ in 0..<particleCount {
@@ -514,7 +594,7 @@ public struct ParticleWaveEffect: View {
     }
     
     /// Update particle properties for the next animation frame
-    private func updateParticles(in size: CGSize) {
+    private mutating func updateParticles(in size: CGSize) {
         // Check for settings updates in UserDefaults
         checkForSettingsUpdates()
         
@@ -524,6 +604,11 @@ public struct ParticleWaveEffect: View {
         // When in loading mode, increment the loading phase
         if isLoading {
             loadingPhase += 0.05 * Double(animationSpeed)
+            
+            // In loading mode, limit to 10 particles
+            if particles.count > 10 {
+                particles = Array(particles.prefix(10))
+            }
         }
         
         // Calculate wave parameters based on intensity
@@ -548,7 +633,7 @@ public struct ParticleWaveEffect: View {
                 let dirY = distanceFromCenter > 0 ? dy / distanceFromCenter : 0
                 
                 // Move particles toward center with progressively stronger pull as they get closer
-                let pullStrength: CGFloat = 1.0 + (30.0 / max(5, distanceFromCenter))
+                let pullStrength: CGFloat = 3.0 + (30.0 / max(5, distanceFromCenter))
                 
                 // Add jittery effect based on loading phase and particle's unique phase
                 let jitterAmount = max(5, distanceFromCenter * 0.2)
@@ -561,7 +646,7 @@ public struct ParticleWaveEffect: View {
                     particle.position.y -= dirY * pullStrength + jitterY * 0.2
                 } else {
                     // Circular orbit when close to center
-                    let orbitSpeed = 2.0 + particle.speed * 0.5
+                    let orbitSpeed = 3.0 + particle.speed * 0.7
                     let orbitRadius = 10.0 + (sin(loadingPhase + particle.phase) * 5.0)
                     particle.position.x = centerX + cos(loadingPhase * orbitSpeed + particle.phase) * orbitRadius + jitterX * 0.5
                     particle.position.y = centerY + sin(loadingPhase * orbitSpeed + particle.phase) * orbitRadius + jitterY * 0.5
@@ -625,8 +710,8 @@ public struct ParticleWaveEffect: View {
             particles[i] = particle
         }
         
-        // Clean up excess particles
-        if particles.count > particleCount * 2 {
+        // Clean up excess particles, but only in normal mode
+        if !isLoading && particles.count > particleCount * 2 {
             particles.removeFirst(particles.count - particleCount * 2)
         }
         
@@ -638,7 +723,7 @@ public struct ParticleWaveEffect: View {
     }
     
     /// Check for settings updates in UserDefaults and apply them
-    private func checkForSettingsUpdates() {
+    private mutating func checkForSettingsUpdates() {
         // First check for JSON settings
         if let jsonString = UserDefaults.standard.string(forKey: "animationSettingsJSON"),
            let jsonData = jsonString.data(using: .utf8) {
@@ -677,8 +762,10 @@ public struct ParticleWaveEffect: View {
                         enableMovement = value
                     }
                     
-                    if let value = jsonSettings["isLoadingMode"] as? Bool {
-                        self.isLoading = value
+                    // Update loading mode if present in settings
+                    if let value = jsonSettings["isLoadingMode"] as? Bool, value != isLoading {
+                        Logger.shared.log("Updating isLoading from JSON settings: \(value)", level: .debug)
+                        setLoadingMode(value)
                     }
                     
                     // Update colors if needed
@@ -739,9 +826,7 @@ public struct ParticleWaveEffect: View {
             enableMovement = enableMove
         }
         
-        if let loadingMode = settings["isLoadingMode"] as? Bool {
-            self.isLoading = loadingMode
-        }
+        // Don't update isLoading from settings
         
         // Update colors if needed
         if let redBase = settings["baseColorRed"] as? Double,
@@ -755,10 +840,17 @@ public struct ParticleWaveEffect: View {
            let blueAccent = settings["accentColorBlue"] as? Double {
             accentColor = Color(NSColor(red: CGFloat(redAccent), green: CGFloat(greenAccent), blue: CGFloat(blueAccent), alpha: 1.0))
         }
+        
+        // Update loading mode if present
+        if let isLoadingValue = settings["isLoadingMode"] as? Bool, isLoadingValue != isLoading {
+            Logger.shared.log("Updating isLoading from legacy settings: \(isLoadingValue)", level: .debug)
+            var mutableSelf = self
+            mutableSelf.setLoadingMode(isLoadingValue)
+        }
     }
     
     /// Update particle colors based on the current intensity
-    private func updateParticleColors() {
+    private mutating func updateParticleColors() {
         if !enableColorChanges { return }
         
         // Update colors for all particles

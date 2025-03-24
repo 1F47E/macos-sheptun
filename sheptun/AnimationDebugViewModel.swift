@@ -179,6 +179,9 @@ class AnimationDebugViewModel: ObservableObject {
             "isLoadingMode": isLoadingMode
         ]
         
+        // Log the loading mode state for debugging
+        logger.log("Setting isLoadingMode to: \(isLoadingMode)", level: .debug)
+        
         // Save to UserDefaults
         UserDefaults.standard.set(settings, forKey: "animationSettings")
         logger.log("Saved animation settings to UserDefaults", level: .info)
@@ -192,7 +195,7 @@ class AnimationDebugViewModel: ObservableObject {
             object: nil,
             userInfo: settings
         )
-        logger.log("Posted AnimationSettingsChanged notification", level: .info)
+        logger.log("Posted AnimationSettingsChanged notification with isLoadingMode: \(isLoadingMode)", level: .info)
     }
     
     func saveCurrentSettings() {

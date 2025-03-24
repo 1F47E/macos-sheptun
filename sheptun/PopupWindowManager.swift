@@ -1,6 +1,23 @@
 import Cocoa
 import SwiftUI
 
+// Animation state manager to allow smooth transitions between states
+class AnimationStateManager: ObservableObject {
+    static let shared = AnimationStateManager()
+    
+    @Published var isInLoadingMode: Bool = false
+    @Published var intensity: Float = 0.0
+    
+    func enterLoadingMode() {
+        // Smooth transition to loading mode
+        isInLoadingMode = true
+    }
+    
+    func exitLoadingMode() {
+        isInLoadingMode = false
+    }
+}
+
 class PopupWindowManager: ObservableObject {
     static let shared = PopupWindowManager()
     
@@ -10,6 +27,8 @@ class PopupWindowManager: ObservableObject {
     private let openAIManager = OpenAIManager.shared
     private let settingsManager = SettingsManager.shared
     private var audioLevelSimulationTimer: Timer?
+    // Reference to the shared animation state
+    private let animationState = AnimationStateManager.shared
     
     // Add a way to track the current state of the popup
     enum PopupState {
@@ -68,6 +87,7 @@ class PopupWindowManager: ObservableObject {
             
             // Reset state to recording
             currentState = .recording
+            animationState.exitLoadingMode()
             return
         }
         
@@ -100,6 +120,7 @@ class PopupWindowManager: ObservableObject {
         
         // Start audio recording and reset state
         currentState = .recording
+        animationState.exitLoadingMode() // Ensure we start in normal mode
         audioRecorder.startRecording()
         
         // Keep a reference to the window
@@ -119,11 +140,15 @@ class PopupWindowManager: ObservableObject {
     }
     
     func startTranscription() {
-        guard let window = popupWindow else { return }
+        guard popupWindow != nil else { return }
         
         // Update state to show we're transcribing
         currentState = .transcribing
         logger.log("Starting transcription process", level: .info)
+        
+        // Trigger the loading animation in the existing view
+        // This causes a smooth transition rather than recreating the view
+        animationState.enterLoadingMode()
         
         // Stop recording first
         audioRecorder.stopRecording()
@@ -289,6 +314,7 @@ class PopupWindowManager: ObservableObject {
             
             DispatchQueue.main.async {
                 self?.audioRecorder.audioLevel = Float(level)
+                self?.animationState.intensity = Float(level)
             }
         }
     }
@@ -303,26 +329,32 @@ class PopupWindowManager: ObservableObject {
 struct RecordingSessionView: View {
     @ObservedObject private var audioRecorder = AudioRecorder.shared
     @ObservedObject private var windowManager = PopupWindowManager.shared
+    @ObservedObject private var animationState = AnimationStateManager.shared
     
     var body: some View {
         VStack(spacing: 10) {
             Group {
                 switch windowManager.currentState {
                 case .recording:
-                    // Recording UI - Minimalistic
+                    // Recording UI - Minimalistic - Now using the shared animation state
                     ParticleWaveEffect(intensity: audioRecorder.audioLevel)
                         .height(40)
                         .baseColor(.blue)
                         .accentColor(.purple)
+                        .loadingMode(animationState.isInLoadingMode)
+                        .animationSpeed(1.5)
+                        .particleCount(35)
                         .padding(.horizontal)
                 
                 case .transcribing:
-                    // Transcribing UI
+                    // Transcribing UI - Same component with loading flag from shared state
                     ParticleWaveEffect(intensity: 0.5)
                         .height(40)
                         .baseColor(.blue)
                         .accentColor(.purple)
-                        .loadingMode(true)
+                        .loadingMode(animationState.isInLoadingMode)
+                        .animationSpeed(1.5)
+                        .particleCount(10)
                         .padding(.horizontal)
                 
                 case .completed(let text):
