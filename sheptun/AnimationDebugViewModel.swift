@@ -30,9 +30,13 @@ class AnimationDebugViewModel: ObservableObject {
     @Published var enableColorChanges: Bool = true
     @Published var enableSizeChanges: Bool = true
     @Published var enableMovement: Bool = true
+    @Published var isLoadingMode: Bool = false
     
     // Preview control
     @Published var previewIntensity: Float = 0.5
+    
+    // JSON output
+    @Published var jsonSettingsString: String = ""
     
     // Save/load functionality
     @Published var presetName: String = ""
@@ -52,10 +56,12 @@ class AnimationDebugViewModel: ObservableObject {
     private let defaultEnableColorChanges: Bool = true
     private let defaultEnableSizeChanges: Bool = true
     private let defaultEnableMovement: Bool = true
+    private let defaultIsLoadingMode: Bool = false
     
     init() {
         loadSavedSettings()
         loadDefaultAnimationSettings()
+        updateJsonSettings()
     }
     
     private func loadDefaultAnimationSettings() {
@@ -102,9 +108,49 @@ class AnimationDebugViewModel: ObservableObject {
         enableColorChanges = defaultEnableColorChanges
         enableSizeChanges = defaultEnableSizeChanges
         enableMovement = defaultEnableMovement
+        isLoadingMode = defaultIsLoadingMode
         
         // Apply the changes
         applyCurrentSettings()
+    }
+    
+    func updateJsonSettings() {
+        // Convert Color to RGB components for JSON
+        let baseComponents = baseColor.rgbComponents
+        let accentComponents = accentColor.rgbComponents
+        
+        // Create settings dictionary
+        let settings: [String: Any] = [
+            "baseColorRed": baseComponents.red,
+            "baseColorGreen": baseComponents.green,
+            "baseColorBlue": baseComponents.blue,
+            "accentColorRed": accentComponents.red,
+            "accentColorGreen": accentComponents.green,
+            "accentColorBlue": accentComponents.blue,
+            "colorVariationIntensity": Double(colorVariationIntensity),
+            "animationSpeed": Double(animationSpeed),
+            "waveAmplitudeMultiplier": Double(waveAmplitudeMultiplier),
+            "particleDensity": Double(particleDensity),
+            "showWaveLine": showWaveLine,
+            "enableColorChanges": enableColorChanges,
+            "enableSizeChanges": enableSizeChanges,
+            "enableMovement": enableMovement,
+            "isLoadingMode": isLoadingMode
+        ]
+        
+        // Convert to JSON
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
+            if let jsonString = String(data: jsonData, encoding: .utf8) {
+                jsonSettingsString = jsonString
+                
+                // Save JSON to UserDefaults
+                UserDefaults.standard.set(jsonString, forKey: "animationSettingsJSON")
+                logger.log("Saved JSON animation settings to UserDefaults", level: .debug)
+            }
+        } catch {
+            logger.log("Failed to generate JSON settings: \(error)", level: .error)
+        }
     }
     
     func applyCurrentSettings() {
@@ -129,12 +175,16 @@ class AnimationDebugViewModel: ObservableObject {
             "showWaveLine": showWaveLine,
             "enableColorChanges": enableColorChanges,
             "enableSizeChanges": enableSizeChanges,
-            "enableMovement": enableMovement
+            "enableMovement": enableMovement,
+            "isLoadingMode": isLoadingMode
         ]
         
         // Save to UserDefaults
         UserDefaults.standard.set(settings, forKey: "animationSettings")
         logger.log("Saved animation settings to UserDefaults", level: .info)
+        
+        // Update JSON string
+        updateJsonSettings()
         
         // Post notification to update any existing ParticleWaveEffect instances
         NotificationCenter.default.post(
@@ -200,7 +250,71 @@ class AnimationDebugViewModel: ObservableObject {
     }
     
     func loadSavedSettings() {
-        // Load from UserDefaults
+        // Try loading from JSON format first
+        if let jsonString = UserDefaults.standard.string(forKey: "animationSettingsJSON"),
+           let jsonData = jsonString.data(using: .utf8) {
+            do {
+                if let jsonSettings = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                    // Apply JSON settings
+                    if let baseColorRed = jsonSettings["baseColorRed"] as? Double,
+                       let baseColorGreen = jsonSettings["baseColorGreen"] as? Double,
+                       let baseColorBlue = jsonSettings["baseColorBlue"] as? Double {
+                        baseColor = Color(red: baseColorRed, green: baseColorGreen, blue: baseColorBlue)
+                    }
+                    
+                    if let accentColorRed = jsonSettings["accentColorRed"] as? Double,
+                       let accentColorGreen = jsonSettings["accentColorGreen"] as? Double,
+                       let accentColorBlue = jsonSettings["accentColorBlue"] as? Double {
+                        accentColor = Color(red: accentColorRed, green: accentColorGreen, blue: accentColorBlue)
+                    }
+                    
+                    if let value = jsonSettings["colorVariationIntensity"] as? Double {
+                        colorVariationIntensity = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["animationSpeed"] as? Double {
+                        animationSpeed = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["waveAmplitudeMultiplier"] as? Double {
+                        waveAmplitudeMultiplier = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["particleDensity"] as? Double {
+                        particleDensity = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["showWaveLine"] as? Bool {
+                        showWaveLine = value
+                    }
+                    
+                    if let value = jsonSettings["enableColorChanges"] as? Bool {
+                        enableColorChanges = value
+                    }
+                    
+                    if let value = jsonSettings["enableSizeChanges"] as? Bool {
+                        enableSizeChanges = value
+                    }
+                    
+                    if let value = jsonSettings["enableMovement"] as? Bool {
+                        enableMovement = value
+                    }
+                    
+                    if let value = jsonSettings["isLoadingMode"] as? Bool {
+                        isLoadingMode = value
+                    }
+                    
+                    // Set JSON string
+                    jsonSettingsString = jsonString
+                    
+                    logger.log("Loaded animation settings from JSON", level: .info)
+                }
+            } catch {
+                logger.log("Failed to parse JSON animation settings: \(error)", level: .error)
+            }
+        }
+        
+        // Load presets from UserDefaults
         if let data = UserDefaults.standard.data(forKey: "animationPresets") {
             do {
                 let decoder = JSONDecoder()

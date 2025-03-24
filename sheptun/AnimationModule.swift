@@ -49,12 +49,16 @@ public struct ParticleWaveEffect: View {
     /// Controls whether particles move horizontally
     @State public var enableMovement: Bool = true
     
+    /// Controls whether the animation is in loading mode
+    @State public var isLoading: Bool = false
+    
     // MARK: - Private Properties
     @State private var particles: [Particle] = []
     @State private var lastIntensity: Float = 0
     @State private var animationPhase: Double = 0
     @State private var isFirstAppear: Bool = true
     @State private var loadedSettings: Bool = false
+    @State private var loadingPhase: Double = 0
     
     // Data structure for each particle
     private struct Particle: Identifiable {
@@ -74,12 +78,73 @@ public struct ParticleWaveEffect: View {
     public init(intensity: Float) {
         self.intensity = max(0, min(1, intensity))
         
-        // Load saved settings from UserDefaults
-        Logger.shared.log("Attempting to load animation settings for ParticleWaveEffect", level: .debug)
-        let settingsKey = "animationSettings"
-        
-        if let savedSettings = UserDefaults.standard.dictionary(forKey: settingsKey) {
-            Logger.shared.log("Found saved settings with key '\(settingsKey)' containing \(savedSettings.count) key-value pairs", level: .debug)
+        // First try to load from JSON settings
+        if let jsonString = UserDefaults.standard.string(forKey: "animationSettingsJSON"),
+           let jsonData = jsonString.data(using: .utf8) {
+            
+            do {
+                if let jsonSettings = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                    Logger.shared.log("Loading animation settings from JSON", level: .info)
+                    
+                    // Apply colors
+                    if let redBase = jsonSettings["baseColorRed"] as? Double,
+                       let greenBase = jsonSettings["baseColorGreen"] as? Double,
+                       let blueBase = jsonSettings["baseColorBlue"] as? Double {
+                        self.baseColor = Color(NSColor(red: CGFloat(redBase), green: CGFloat(greenBase), blue: CGFloat(blueBase), alpha: 1.0))
+                        Logger.shared.log("Loaded base color from JSON", level: .debug)
+                    }
+                    
+                    if let redAccent = jsonSettings["accentColorRed"] as? Double,
+                       let greenAccent = jsonSettings["accentColorGreen"] as? Double,
+                       let blueAccent = jsonSettings["accentColorBlue"] as? Double {
+                        self.accentColor = Color(NSColor(red: CGFloat(redAccent), green: CGFloat(greenAccent), blue: CGFloat(blueAccent), alpha: 1.0))
+                        Logger.shared.log("Loaded accent color from JSON", level: .debug)
+                    }
+                    
+                    // Load other parameters
+                    if let value = jsonSettings["colorVariationIntensity"] as? Double {
+                        self.colorVariationIntensity = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["animationSpeed"] as? Double {
+                        self.animationSpeed = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["waveAmplitudeMultiplier"] as? Double {
+                        self.waveAmplitudeMultiplier = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["particleDensity"] as? Double {
+                        self.particleDensity = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["showWaveLine"] as? Bool {
+                        self.showWaveLine = value
+                    }
+                    
+                    if let value = jsonSettings["enableColorChanges"] as? Bool {
+                        self.enableColorChanges = value
+                    }
+                    
+                    if let value = jsonSettings["enableSizeChanges"] as? Bool {
+                        self.enableSizeChanges = value
+                    }
+                    
+                    if let value = jsonSettings["enableMovement"] as? Bool {
+                        self.enableMovement = value
+                    }
+                    
+                    if let value = jsonSettings["isLoadingMode"] as? Bool {
+                        self.isLoading = value
+                    }
+                }
+            } catch {
+                Logger.shared.log("Failed to parse JSON settings: \(error)", level: .error)
+            }
+        }
+        // Fall back to legacy settings if no JSON found
+        else if let savedSettings = UserDefaults.standard.dictionary(forKey: "animationSettings") {
+            Logger.shared.log("Found saved settings with key 'animationSettings' containing \(savedSettings.count) key-value pairs", level: .debug)
             Logger.shared.log("Settings contents: \(savedSettings)", level: .debug)
             
             // Apply saved settings if available
@@ -139,6 +204,13 @@ public struct ParticleWaveEffect: View {
                 Logger.shared.log("Missing enableMovement in settings", level: .debug)
             }
             
+            if let loadingMode = savedSettings["isLoadingMode"] as? Bool {
+                self.isLoading = loadingMode
+                Logger.shared.log("Loaded isLoadingMode: \(loadingMode)", level: .debug)
+            } else {
+                Logger.shared.log("Missing isLoadingMode in settings", level: .debug)
+            }
+            
             // Load colors
             if let redBase = savedSettings["baseColorRed"] as? Double,
                let greenBase = savedSettings["baseColorGreen"] as? Double,
@@ -157,18 +229,7 @@ public struct ParticleWaveEffect: View {
             
             Logger.shared.log("Animation settings loaded successfully", level: .info)
         } else {
-            Logger.shared.log("No saved settings found for ParticleWaveEffect with key '\(settingsKey)', using defaults", level: .info)
-            
-            // Try looking for JSON format
-            if let jsonString = UserDefaults.standard.string(forKey: "animationSettingsJSON") {
-                Logger.shared.log("Found JSON settings string with \(jsonString.count) characters", level: .debug)
-            } else {
-                Logger.shared.log("No JSON settings found either", level: .debug)
-            }
-            
-            // List all keys in UserDefaults
-            let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
-            Logger.shared.log("All UserDefaults keys: \(allKeys)", level: .debug)
+            Logger.shared.log("No saved settings found for ParticleWaveEffect, using defaults", level: .info)
         }
         
         // Setup notification observer for settings changes
@@ -254,6 +315,18 @@ public struct ParticleWaveEffect: View {
         }
     }
     
+    // MARK: - Public Methods
+    
+    /// Toggle loading mode
+    /// - Parameter isLoading: Whether loading mode should be enabled
+    public mutating func setLoadingMode(_ isLoading: Bool) {
+        self.isLoading = isLoading
+        // Reset loading phase when toggling
+        if isLoading {
+            loadingPhase = 0
+        }
+    }
+    
     // MARK: - Private Methods
     
     private func setupNotificationObserver() {
@@ -335,6 +408,17 @@ public struct ParticleWaveEffect: View {
         
         // Also save to UserDefaults for future instances
         UserDefaults.standard.set(settings, forKey: "animationSettings")
+        
+        // Save as JSON as well
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
+            if let jsonString = String(data: jsonData, encoding: .utf8) {
+                UserDefaults.standard.set(jsonString, forKey: "animationSettingsJSON")
+                Logger.shared.log("Saved JSON settings to UserDefaults", level: .debug)
+            }
+        } catch {
+            Logger.shared.log("Failed to save JSON settings: \(error)", level: .error)
+        }
         
         // Force update colors immediately
         updateParticleColors()
@@ -437,48 +521,104 @@ public struct ParticleWaveEffect: View {
         // Increment global animation phase using animation speed parameter
         animationPhase += 0.05 * Double(animationSpeed) * (enableMovement ? 1.0 : 0.0)
         
+        // When in loading mode, increment the loading phase
+        if isLoading {
+            loadingPhase += 0.05 * Double(animationSpeed)
+        }
+        
         // Calculate wave parameters based on intensity
         let centerY = size.height / 2
+        let centerX = size.width / 2
         let spread = 10 + CGFloat(intensity) * (size.height * 0.3) * CGFloat(waveAmplitudeMultiplier)
         
         // Update each particle
         for i in 0..<particles.count {
-            // Horizontal movement
             var particle = particles[i]
             
-            if enableMovement {
-                particle.position.x += particle.speed * CGFloat(animationSpeed)
-            }
-            
-            // Reset position when particle goes off-screen
-            if particle.position.x > size.width {
-                particle.position.x = 0
+            if isLoading {
+                // Loading mode: particles gather in center with jittery movement
                 
-                // Update size and speed based on current intensity and density parameter
-                let densityFactor = 1.0 - (CGFloat(particleDensity) * (1.0 - CGFloat(intensity)))
+                // Calculate distance from center
+                let dx = particle.position.x - centerX
+                let dy = particle.position.y - centerY
+                let distanceFromCenter = sqrt(dx * dx + dy * dy)
                 
+                // Normalize direction vector
+                let dirX = distanceFromCenter > 0 ? dx / distanceFromCenter : 0
+                let dirY = distanceFromCenter > 0 ? dy / distanceFromCenter : 0
+                
+                // Move particles toward center with progressively stronger pull as they get closer
+                let pullStrength: CGFloat = 1.0 + (30.0 / max(5, distanceFromCenter))
+                
+                // Add jittery effect based on loading phase and particle's unique phase
+                let jitterAmount = max(5, distanceFromCenter * 0.2)
+                let jitterX = sin(loadingPhase * 3.0 + particle.phase) * jitterAmount
+                let jitterY = cos(loadingPhase * 2.5 + particle.phase * 1.3) * jitterAmount
+                
+                // Move particle toward center with jitter effect
+                if distanceFromCenter > 20 {
+                    particle.position.x -= dirX * pullStrength + jitterX * 0.2
+                    particle.position.y -= dirY * pullStrength + jitterY * 0.2
+                } else {
+                    // Circular orbit when close to center
+                    let orbitSpeed = 2.0 + particle.speed * 0.5
+                    let orbitRadius = 10.0 + (sin(loadingPhase + particle.phase) * 5.0)
+                    particle.position.x = centerX + cos(loadingPhase * orbitSpeed + particle.phase) * orbitRadius + jitterX * 0.5
+                    particle.position.y = centerY + sin(loadingPhase * orbitSpeed + particle.phase) * orbitRadius + jitterY * 0.5
+                }
+                
+                // Pulse particle size during loading
                 if enableSizeChanges {
-                    particle.size = CGFloat.random(in: 3...maxParticleSize) * (0.5 + CGFloat(intensity) * 0.5) * densityFactor
+                    let basePulseSize = 3.0 + (sin(loadingPhase * 4.0 + particle.phase) + 1) * 3.0
+                    particle.size = basePulseSize + (particle.size * 0.1)
                 }
                 
-                particle.speed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2 * CGFloat(animationSpeed)
-                
+                // Enhance color during loading
                 if enableColorChanges {
-                    particle.color = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
+                    let loadingIntensity = 0.6 + sin(loadingPhase * 2.0) * 0.4
+                    particle.color = getParticleColor(intensity: Float(loadingIntensity), random: CGFloat.random(in: 0...1))
                 }
                 
-                particle.opacity = Double.random(in: 0.5...0.9)
-            }
-            
-            // Vertical movement with wave pattern
-            if enableMovement {
-                let waveAmplitude = spread * (particle.size / maxParticleSize)
-                let waveFrequency = 1.0 + (particle.size / maxParticleSize)
-                let yOffset = sin(
-                    (particle.phase + Double(particle.position.x) / Double(size.width) * 4 * .pi + animationPhase) * waveFrequency
-                ) * Double(waveAmplitude)
+                // Vary opacity for visual interest
+                particle.opacity = 0.4 + abs(sin(loadingPhase * 3.0 + particle.phase)) * 0.6
+            } 
+            else {
+                // Normal mode: wave animation
                 
-                particle.position.y = centerY + CGFloat(yOffset)
+                if enableMovement {
+                    particle.position.x += particle.speed * CGFloat(animationSpeed)
+                }
+                
+                // Reset position when particle goes off-screen
+                if particle.position.x > size.width {
+                    particle.position.x = 0
+                    
+                    // Update size and speed based on current intensity and density parameter
+                    let densityFactor = 1.0 - (CGFloat(particleDensity) * (1.0 - CGFloat(intensity)))
+                    
+                    if enableSizeChanges {
+                        particle.size = CGFloat.random(in: 3...maxParticleSize) * (0.5 + CGFloat(intensity) * 0.5) * densityFactor
+                    }
+                    
+                    particle.speed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2 * CGFloat(animationSpeed)
+                    
+                    if enableColorChanges {
+                        particle.color = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
+                    }
+                    
+                    particle.opacity = Double.random(in: 0.5...0.9)
+                }
+                
+                // Vertical movement with wave pattern
+                if enableMovement {
+                    let waveAmplitude = spread * (particle.size / maxParticleSize)
+                    let waveFrequency = 1.0 + (particle.size / maxParticleSize)
+                    let yOffset = sin(
+                        (particle.phase + Double(particle.position.x) / Double(size.width) * 4 * .pi + animationPhase) * waveFrequency
+                    ) * Double(waveAmplitude)
+                    
+                    particle.position.y = centerY + CGFloat(yOffset)
+                }
             }
             
             // Update particle in array
@@ -499,6 +639,69 @@ public struct ParticleWaveEffect: View {
     
     /// Check for settings updates in UserDefaults and apply them
     private func checkForSettingsUpdates() {
+        // First check for JSON settings
+        if let jsonString = UserDefaults.standard.string(forKey: "animationSettingsJSON"),
+           let jsonData = jsonString.data(using: .utf8) {
+            do {
+                if let jsonSettings = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                    // Apply animation settings from JSON
+                    if let value = jsonSettings["colorVariationIntensity"] as? Double {
+                        colorVariationIntensity = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["animationSpeed"] as? Double {
+                        animationSpeed = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["waveAmplitudeMultiplier"] as? Double {
+                        waveAmplitudeMultiplier = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["particleDensity"] as? Double {
+                        particleDensity = Float(value)
+                    }
+                    
+                    if let value = jsonSettings["showWaveLine"] as? Bool {
+                        showWaveLine = value
+                    }
+                    
+                    if let value = jsonSettings["enableColorChanges"] as? Bool {
+                        enableColorChanges = value
+                    }
+                    
+                    if let value = jsonSettings["enableSizeChanges"] as? Bool {
+                        enableSizeChanges = value
+                    }
+                    
+                    if let value = jsonSettings["enableMovement"] as? Bool {
+                        enableMovement = value
+                    }
+                    
+                    if let value = jsonSettings["isLoadingMode"] as? Bool {
+                        self.isLoading = value
+                    }
+                    
+                    // Update colors if needed
+                    if let redBase = jsonSettings["baseColorRed"] as? Double,
+                       let greenBase = jsonSettings["baseColorGreen"] as? Double,
+                       let blueBase = jsonSettings["baseColorBlue"] as? Double {
+                        baseColor = Color(NSColor(red: CGFloat(redBase), green: CGFloat(greenBase), blue: CGFloat(blueBase), alpha: 1.0))
+                    }
+                    
+                    if let redAccent = jsonSettings["accentColorRed"] as? Double,
+                       let greenAccent = jsonSettings["accentColorGreen"] as? Double,
+                       let blueAccent = jsonSettings["accentColorBlue"] as? Double {
+                        accentColor = Color(NSColor(red: CGFloat(redAccent), green: CGFloat(greenAccent), blue: CGFloat(blueAccent), alpha: 1.0))
+                    }
+                    
+                    return // Skip legacy settings check if JSON was processed
+                }
+            } catch {
+                Logger.shared.log("Failed to parse JSON settings update: \(error)", level: .error)
+            }
+        }
+        
+        // Fall back to legacy settings format
         guard let settings = UserDefaults.standard.dictionary(forKey: "animationSettings") else {
             return
         }
@@ -534,6 +737,10 @@ public struct ParticleWaveEffect: View {
         
         if let enableMove = settings["enableMovement"] as? Bool {
             enableMovement = enableMove
+        }
+        
+        if let loadingMode = settings["isLoadingMode"] as? Bool {
+            self.isLoading = loadingMode
         }
         
         // Update colors if needed
@@ -679,6 +886,13 @@ public extension ParticleWaveEffect {
     func enableMovement(_ enabled: Bool) -> ParticleWaveEffect {
         var copy = self
         copy.enableMovement = enabled
+        return copy
+    }
+    
+    /// Enable or disable loading mode
+    func loadingMode(_ isLoading: Bool) -> ParticleWaveEffect {
+        var copy = self
+        copy.isLoading = isLoading
         return copy
     }
 }

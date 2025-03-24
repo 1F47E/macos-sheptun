@@ -15,6 +15,8 @@ struct AnimationDebugView: View {
                     
                     animationControlsView
                     
+                    jsonSettingsView
+                    
                     saveLoadView
                 }
                 .padding()
@@ -71,6 +73,7 @@ struct AnimationDebugView: View {
                 .enableColorChanges(viewModel.enableColorChanges)
                 .enableSizeChanges(viewModel.enableSizeChanges)
                 .enableMovement(viewModel.enableMovement)
+                .loadingMode(viewModel.isLoadingMode)
                 .cornerRadius(8)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
@@ -84,6 +87,57 @@ struct AnimationDebugView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
         )
+    }
+    
+    // JSON Settings View
+    private var jsonSettingsView: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Text("JSON Settings:")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button("Copy to Clipboard") {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(viewModel.jsonSettingsString, forType: .string)
+                }
+                .font(.system(size: 12))
+            }
+            
+            ScrollView {
+                Text(viewModel.jsonSettingsString)
+                    .font(.system(size: 12, design: .monospaced))
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 150)
+            .background(Color(.textBackgroundColor))
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .padding()
+        .background(Color(.windowBackgroundColor).opacity(0.6))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
+        )
+        .onChange(of: viewModel.baseColor) { _ in viewModel.updateJsonSettings() }
+        .onChange(of: viewModel.accentColor) { _ in viewModel.updateJsonSettings() }
+        .onChange(of: viewModel.colorVariationIntensity) { _ in viewModel.updateJsonSettings() }
+        .onChange(of: viewModel.animationSpeed) { _ in viewModel.updateJsonSettings() }
+        .onChange(of: viewModel.waveAmplitudeMultiplier) { _ in viewModel.updateJsonSettings() }
+        .onChange(of: viewModel.particleDensity) { _ in viewModel.updateJsonSettings() }
+        .onChange(of: viewModel.showWaveLine) { _ in viewModel.updateJsonSettings() }
+        .onChange(of: viewModel.enableColorChanges) { _ in viewModel.updateJsonSettings() }
+        .onChange(of: viewModel.enableSizeChanges) { _ in viewModel.updateJsonSettings() }
+        .onChange(of: viewModel.enableMovement) { _ in viewModel.updateJsonSettings() }
     }
     
     // Animation controls view
@@ -120,6 +174,24 @@ struct AnimationDebugView: View {
                 .font(.system(size: 12))
             }
             .padding(.bottom, 4)
+            
+            // Loading mode button
+            HStack {
+                Text("Loading Mode:")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Toggle("", isOn: $viewModel.isLoadingMode)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .onChange(of: viewModel.isLoadingMode) { _, newValue in
+                        viewModel.updateJsonSettings()
+                        viewModel.applyCurrentSettings()
+                    }
+            }
+            .padding(.bottom, 8)
             
             // Color selector
             VStack(spacing: 8) {
