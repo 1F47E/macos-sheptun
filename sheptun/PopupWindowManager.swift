@@ -28,13 +28,34 @@ class PopupWindowManager: ObservableObject {
     }
     
     func togglePopupWindow() {
-        if isWindowVisible {
-            // If already visible, start transcription process
-            startTranscription()
+        let audioRecorder = AudioRecorder.shared
+        
+        // First check if we have microphone permission
+        if !audioRecorder.checkMicrophonePermission() {
+            logger.log("Microphone permission not granted, requesting access", level: .warning)
+            
+            // Request microphone permission
+            audioRecorder.requestMicrophonePermission { [weak self] granted in
+                guard let self = self else { return }
+                
+                if granted {
+                    self.logger.log("Microphone access granted, showing popup", level: .info)
+                    // Now that we have permission, show the popup
+                    self.showPopupWindowAfterPermissionCheck()
+                } else {
+                    self.logger.log("Microphone access not granted, cannot record", level: .warning)
+                }
+            }
         } else {
-            // If not visible, show the popup and start recording
-            showPopupWindow()
-            logger.log("Popup window toggled on", level: .info)
+            // We have permission, proceed normally
+            if isWindowVisible {
+                // If already visible, start transcription process
+                startTranscription()
+            } else {
+                // If not visible, show the popup and start recording
+                showPopupWindow()
+                logger.log("Popup window toggled on", level: .info)
+            }
         }
     }
     
@@ -54,7 +75,7 @@ class PopupWindowManager: ObservableObject {
         
         // Create a window without standard decorations and non-activating
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 180),
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -83,6 +104,18 @@ class PopupWindowManager: ObservableObject {
         
         // Keep a reference to the window
         self.popupWindow = window
+    }
+    
+    // New method to handle showing popup after permission check
+    private func showPopupWindowAfterPermissionCheck() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            if !self.isWindowVisible {
+                self.showPopupWindow()
+                self.logger.log("Popup window shown after permission granted", level: .info)
+            }
+        }
     }
     
     func startTranscription() {
@@ -237,12 +270,12 @@ class PopupWindowManager: ObservableObject {
         let windowSize = window.frame.size
         
         let centerX = screenFrame.midX - (windowSize.width / 2)
-        let topY = screenFrame.maxY - windowSize.height - 20 // 20px from top
+        let bottomY = screenFrame.minY + 20 // 20px from bottom
         
-        let topCenterPoint = NSPoint(x: centerX, y: topY)
-        window.setFrameTopLeftPoint(topCenterPoint)
+        let bottomCenterPoint = NSPoint(x: centerX, y: bottomY)
+        window.setFrameOrigin(bottomCenterPoint)
         
-        logger.log("Positioned window at: x=\(centerX), y=\(topY)", level: .debug)
+        logger.log("Positioned window at: x=\(centerX), y=\(bottomY)", level: .debug)
     }
     
     // Audio level simulation methods
@@ -272,103 +305,58 @@ struct RecordingSessionView: View {
     @ObservedObject private var windowManager = PopupWindowManager.shared
     
     var body: some View {
-        VStack(spacing: 12) {
-            Text(titleForState)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(.white)
-            
+        VStack(spacing: 10) {
             Group {
                 switch windowManager.currentState {
                 case .recording:
-                    // Recording UI
-                    // Debug volume level
-                    Text("Volume: \(String(format: "%.2f", audioRecorder.audioLevel))")
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundColor(.gray)
-                    
-                    // Timer display
-                    Text(formatTime(audioRecorder.recordingTime))
-                        .font(.system(size: 24, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white)
-                    
-                    // Audio visualization with flowing dots
+                    // Recording UI - Minimalistic
                     ParticleWaveEffect(intensity: audioRecorder.audioLevel)
-                        .height(50)
+                        .height(40)
                         .baseColor(.blue)
                         .accentColor(.purple)
                         .padding(.horizontal)
-                    
-                    Text("Speak now...")
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray)
                 
                 case .transcribing:
                     // Transcribing UI
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(1.5)
+                        .scaleEffect(1.2)
                         .padding()
-                    
-                    Text("Transcribing audio...")
-                        .font(.system(size: 16))
-                        .foregroundColor(.white)
                 
                 case .completed(let text):
                     // Success UI
                     Image(systemName: "checkmark.circle.fill")
                         .resizable()
-                        .frame(width: 40, height: 40)
+                        .frame(width: 30, height: 30)
                         .foregroundColor(.green)
                         .padding()
-                    
-                    Text(text)
-                        .font(.system(size: 14))
-                        .foregroundColor(.white)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                    
-                    Text("Copied to clipboard")
-                        .font(.system(size: 12))
-                        .foregroundColor(.gray)
                 
                 case .error(let message):
-                    // Error UI
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .resizable()
-                        .frame(width: 40, height: 35)
-                        .foregroundColor(.red)
-                        .padding()
-                    
-                    Text("Error: \(message)")
-                        .font(.system(size: 14))
-                        .foregroundColor(.white)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+                    // Error UI - Show error text
+                    VStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .resizable()
+                            .frame(width: 25, height: 22)
+                            .foregroundColor(.red)
+                            .padding(.top, 8)
+                        
+                        Text("Error: \(message)")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+                    .frame(width: 200, height: 120)
                 }
             }
-            .padding(.bottom, 5)
         }
-        .frame(width: 400, height: 200)
+        .frame(width: 200, height: windowManager.currentState.isError ? 120 : 80)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.95))
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.85))
         )
-        .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 5)
-    }
-    
-    private var titleForState: String {
-        switch windowManager.currentState {
-        case .recording:
-            return "Recording Session"
-        case .transcribing:
-            return "Processing Audio"
-        case .completed:
-            return "Transcription Complete"
-        case .error:
-            return "Transcription Error"
-        }
+        .shadow(color: Color.black.opacity(0.3), radius: 6, x: 0, y: 2)
     }
     
     private func formatTime(_ timeInterval: TimeInterval) -> String {
@@ -376,6 +364,16 @@ struct RecordingSessionView: View {
         let seconds = Int(timeInterval) % 60
         let milliseconds = Int((timeInterval.truncatingRemainder(dividingBy: 1)) * 100)
         return String(format: "%02d:%02d.%02d", minutes, seconds, milliseconds)
+    }
+}
+
+// Extension to check if the state is an error state
+extension PopupWindowManager.PopupState {
+    var isError: Bool {
+        if case .error(_) = self {
+            return true
+        }
+        return false
     }
 }
 

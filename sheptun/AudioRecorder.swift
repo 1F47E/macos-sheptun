@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import CoreAudio
+import AppKit
 
 class AudioRecorder: NSObject, ObservableObject {
     static let shared = AudioRecorder()
@@ -160,14 +161,14 @@ class AudioRecorder: NSObject, ObservableObject {
             
             // Stop the recording components
             await MainActor.run {
-                logger.log("Stopping audio recording components...", level: .info)
+                self.logger.log("Stopping audio recording components...", level: .info)
                 
                 // Stop the audio recorder
                 if let recorder = self.audioRecorder {
                     recorder.stop()
-                    logger.log("AVAudioRecorder stopped", level: .info)
+                    self.logger.log("AVAudioRecorder stopped", level: .info)
                 } else {
-                    logger.log("No active AVAudioRecorder to stop", level: .debug)
+                    self.logger.log("No active AVAudioRecorder to stop", level: .debug)
                 }
                 self.audioRecorder = nil
                 
@@ -196,7 +197,7 @@ class AudioRecorder: NSObject, ObservableObject {
                         self.logger.log("Warning: Recording file not found after stopping", level: .warning)
                     }
                 } else {
-                    logger.log("Stopped audio recording. Could not calculate duration (no start time)", level: .warning)
+                    self.logger.log("Stopped audio recording. Could not calculate duration (no start time)", level: .warning)
                 }
                 
                 // Ensure isRecording state is false
@@ -301,6 +302,58 @@ class AudioRecorder: NSObject, ObservableObject {
     // Original method for backward compatibility
     func startRecording() {
         _ = startRecording(microphoneID: settings.selectedMicrophoneID)
+    }
+    
+    // Check if microphone permission is granted
+    func checkMicrophonePermission() -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return true
+        case .denied, .restricted:
+            return false
+        case .notDetermined:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+    
+    // Request microphone permission
+    func requestMicrophonePermission(completion: @escaping (Bool) -> Void) {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            // Already authorized
+            completion(true)
+            
+        case .notDetermined:
+            // Permission hasn't been asked yet, so ask
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                DispatchQueue.main.async {
+                    completion(granted)
+                }
+            }
+            
+        case .denied, .restricted:
+            // Permission was denied, open system settings
+            let alert = NSAlert()
+            alert.messageText = "Microphone Access Required"
+            alert.informativeText = "Sheptun needs access to your microphone to function. Please grant microphone access in System Settings."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open Settings")
+            alert.addButton(withTitle: "Cancel")
+            
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                // Open system settings
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            completion(false)
+            
+        @unknown default:
+            completion(false)
+        }
     }
 }
 

@@ -54,6 +54,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             logger.log("App started with no API key set", level: .warning)
             print("App started with no API key set")
         }
+        
+        // Check microphone permission on app launch
+        checkMicrophonePermission()
     }
     
     private func registerHotkey() {
@@ -78,16 +81,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         logger.log("Setting up status bar menu")
         let menu = NSMenu()
         
-        menu.addItem(NSMenuItem(title: "Settings", action: #selector(openSettings), keyEquivalent: ","))
+        // Transcribe Debug
+        menu.addItem(NSMenuItem(title: "Transcribe Debug", action: #selector(openTranscribeDebugWindow), keyEquivalent: "d"))
+        
+        // Logs
+        menu.addItem(NSMenuItem(title: "Logs", action: #selector(showLogs), keyEquivalent: "l"))
+        
+        // Animation Debug
+        menu.addItem(NSMenuItem(title: "Animation Debug", action: #selector(openAnimationDebugWindow), keyEquivalent: "a"))
+        
+        // Settings
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Debug Animation", action: #selector(openDebugAnimation), keyEquivalent: "d"))
-        menu.addItem(NSMenuItem(title: "Transcribe Debug", action: #selector(openTranscribeDebug), keyEquivalent: "t"))
-        menu.addItem(NSMenuItem(title: "Show Logs", action: #selector(showLogs), keyEquivalent: "l"))
+        menu.addItem(NSMenuItem(title: "Settings", action: #selector(openSettings), keyEquivalent: ","))
+        
+        // Quit
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         
         statusItem.menu = menu
-        logger.log("Status bar menu configured with Settings, Debug Animation, Transcribe Debug, Show Logs, and Quit options")
+        logger.log("Status bar menu configured with Settings, Animation Debug, Transcribe Debug, and Quit options")
     }
     
     @objc func openSettings() {
@@ -147,125 +159,107 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    @objc func openDebugAnimation() {
-        logger.log("Opening debug animation window", level: .info)
+    @objc func openAnimationDebugWindow() {
+        logger.log("Opening Animation Debug Window", level: .info)
+        
+        if let existingWindow = debugAnimationWindow, !existingWindow.isVisible {
+            existingWindow.makeKeyAndOrderFront(nil)
+            return
+        }
         
         if debugAnimationWindow == nil {
-            logger.log("Creating debug animation window", level: .debug)
-            
-            // Create the window
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
-                styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            let contentView = AnimationDebugView()
+            debugAnimationWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered,
                 defer: false
             )
-            window.center()
-            window.title = "Animation Debug"
-            window.titlebarAppearsTransparent = true
-            window.isReleasedWhenClosed = false
-            window.backgroundColor = NSColor.windowBackgroundColor
-            
-            // Set the SwiftUI view as the window content
-            let debugView = DebugAnimationView()
-            window.contentView = NSHostingView(rootView: debugView)
-            
-            self.debugAnimationWindow = window
-            logger.log("Debug animation window created", level: .debug)
+            debugAnimationWindow?.center()
+            debugAnimationWindow?.title = "Animation Debug"
+            debugAnimationWindow?.isReleasedWhenClosed = false
+            debugAnimationWindow?.contentView = NSHostingView(rootView: contentView)
         }
         
-        // Show and activate the window
-        if let window = debugAnimationWindow {
-            logger.log("Showing debug animation window", level: .debug)
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
-            NSApp.activate(ignoringOtherApps: true)
+        debugAnimationWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @objc func openTranscribeDebugWindow() {
+        logger.log("Opening Transcribe Debug Window", level: .info)
+        
+        if let existingWindow = transcribeDebugWindow, !existingWindow.isVisible {
+            existingWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+        
+        if transcribeDebugWindow == nil {
+            let contentView = TranscribeDebugView()
+            transcribeDebugWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            transcribeDebugWindow?.center()
+            transcribeDebugWindow?.title = "Transcribe Debug"
+            transcribeDebugWindow?.isReleasedWhenClosed = false
+            transcribeDebugWindow?.contentView = NSHostingView(rootView: contentView)
+        }
+        
+        transcribeDebugWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    // Add a method to check and request microphone permission
+    private func checkMicrophonePermission() {
+        let audioRecorder = AudioRecorder.shared
+        
+        if !audioRecorder.checkMicrophonePermission() {
+            logger.log("Microphone permission not granted, requesting access", level: .warning)
+            
+            // Request microphone permission
+            audioRecorder.requestMicrophonePermission { granted in
+                if granted {
+                    self.logger.log("Microphone access granted", level: .info)
+                } else {
+                    self.logger.log("Microphone access not granted", level: .warning)
+                }
+            }
+        } else {
+            logger.log("Microphone permission already granted", level: .info)
         }
     }
     
-    @objc func openTranscribeDebug() {
-        logger.log("Opening transcribe debug window", level: .info)
-        
-        if transcribeDebugWindow == nil {
-            logger.log("Creating transcribe debug window", level: .debug)
-            
-            // Create the window
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
-                styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
-                backing: .buffered,
-                defer: false
-            )
-            window.center()
-            window.title = "Transcribe Debug"
-            window.titlebarAppearsTransparent = true
-            window.isReleasedWhenClosed = false
-            window.backgroundColor = NSColor.windowBackgroundColor
-            
-            // Set the SwiftUI view as the window content
-            let transcribeDebugView = TranscribeDebugView()
-            window.contentView = NSHostingView(rootView: transcribeDebugView)
-            
-            self.transcribeDebugWindow = window
-            logger.log("Transcribe debug window created", level: .debug)
-        }
-        
-        // Show and activate the window
-        if let window = transcribeDebugWindow {
-            logger.log("Showing transcribe debug window", level: .debug)
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
-            NSApp.activate(ignoringOtherApps: true)
-        }
+    // Add missing methods for recording functionality
+    @objc func startRecording() {
+        logger.log("Start recording command triggered", level: .info)
+        // Implementation for starting recording
+        // This is a placeholder - actual recording functionality should be implemented
+        let audioRecorder = AudioRecorder.shared
+        audioRecorder.startRecording()
+    }
+    
+    @objc func stopRecording() {
+        logger.log("Stop recording command triggered", level: .info)
+        // Implementation for stopping recording
+        // This is a placeholder - actual recording functionality should be implemented
+        let audioRecorder = AudioRecorder.shared
+        audioRecorder.stopRecording()
     }
 }
 
-// MARK: - Debug Animation View
-struct DebugAnimationView: View {
-    @State private var intensity: Float = 0.5
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            Text("Animation Debug")
-                .font(.title2)
-                .padding(.top)
-            
-            // Animation module display area
-            ParticleWaveEffect(intensity: intensity)
-                .baseColor(.blue)
-                .accentColor(.purple)
-                .height(200)
-                .padding()
-                .background(Color(.windowBackgroundColor).opacity(0.2))
-                .cornerRadius(12)
-                .padding(.horizontal)
-            
-            // Control panel
-            VStack(spacing: 10) {
-                Text("Intensity: \(String(format: "%.2f", intensity))")
-                    .font(.headline)
-                
-                HStack {
-                    Text("0.0")
-                    Slider(value: $intensity, in: 0...1)
-                        .padding(.horizontal)
-                    Text("1.0")
-                }
-                
-                HStack(spacing: 20) {
-                    Button("0.25") { intensity = 0.25 }
-                    Button("0.5") { intensity = 0.5 }
-                    Button("0.75") { intensity = 0.75 }
-                    Button("1.0") { intensity = 1.0 }
-                }
-            }
-            .padding()
-            .background(Color(.windowBackgroundColor).opacity(0.2))
-            .cornerRadius(12)
-            .padding(.horizontal)
-            
-            Spacer()
-        }
-        .frame(minWidth: 500, minHeight: 400)
+// Helper extension to get RGB components from UIColor
+extension NSColor {
+    var rgbComponents: (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        
+        let convertedColor = self.usingColorSpace(.sRGB) ?? self
+        convertedColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        
+        return (r, g, b, a)
     }
 }

@@ -133,6 +133,42 @@ struct TranscribeDebugView: View {
         .padding(.top)
     }
     
+    // Error display
+    private var errorView: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.red)
+                .font(.system(size: 16))
+            
+            VStack(alignment: .leading, spacing: 6) {
+                Text(viewModel.lastError)
+                    .font(.system(size: 13))
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                
+                if viewModel.lastError.contains("microphone access") || 
+                   viewModel.lastError.contains("permission denied") {
+                    Button(action: openSystemPreferences) {
+                        Text("Open System Settings")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.top, 2)
+                }
+            }
+            
+            Spacer()
+        }
+        .padding(12)
+        .background(Color.red.opacity(0.1))
+        .cornerRadius(8)
+    }
+    
+    private func openSystemPreferences() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else { return }
+        NSWorkspace.shared.open(url)
+    }
+    
     // Main transcription content area
     private var transcriptionView: some View {
         VStack(spacing: 0) {
@@ -194,42 +230,6 @@ struct TranscribeDebugView: View {
         .padding()
         .background(Color(.textBackgroundColor).opacity(0.2))
         .cornerRadius(10)
-    }
-    
-    // Error display
-    private var errorView: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.red)
-                .font(.system(size: 16))
-            
-            VStack(alignment: .leading, spacing: 6) {
-                Text(viewModel.lastError)
-                    .font(.system(size: 13))
-                    .foregroundColor(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-                
-                if viewModel.lastError.contains("microphone access") || 
-                   viewModel.lastError.contains("permission denied") {
-                    Button(action: openSystemPreferences) {
-                        Text("Open System Settings")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .buttonStyle(.borderless)
-                    .padding(.top, 2)
-                }
-            }
-            
-            Spacer()
-        }
-        .padding(12)
-        .background(Color.red.opacity(0.1))
-        .cornerRadius(8)
-    }
-    
-    private func openSystemPreferences() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else { return }
-        NSWorkspace.shared.open(url)
     }
     
     // Loading spinner overlay
@@ -546,7 +546,7 @@ class TranscribeViewModel: ObservableObject {
                              "default" : self.settingsManager.selectedMicrophoneID
                 
                 // Start recording using AudioRecorder instead of OpenAIManager
-                self.audioRecorder.startRecording(microphoneID: deviceID)
+                let _ = self.audioRecorder.startRecording(microphoneID: deviceID)
                 
                 // Wait a small amount of time to check if recording actually started
                 try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
@@ -779,9 +779,6 @@ class TranscribeViewModel: ObservableObject {
         // Stop timers
         sessionTimer?.invalidate()
         statsUpdateTimer?.invalidate()
-        
-        // No need to call OpenAIManager.stopTranscription as it doesn't exist
-        // and we're not handling streaming audio
     }
     
     deinit {

@@ -166,7 +166,7 @@ class GroqAIManager: AIProvider {
             var arguments = [
                 "-s",
                 "https://api.groq.com/openai/v1/audio/transcriptions",
-                "-H", "Authorization: Bearer \(apiKey)",
+                "-H", "\"Authorization: Bearer \(apiKey)\"",
                 "-F", "model=\(model)",
                 "-F", "file=@\(audioFileURL.path)",
                 "-F", "temperature=\(temperature)"

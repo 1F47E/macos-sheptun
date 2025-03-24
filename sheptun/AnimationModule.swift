@@ -14,10 +14,10 @@ public struct ParticleWaveEffect: View {
     public var particleCount: Int = 35
     
     /// Base color for particles (modified based on intensity)
-    public var baseColor: Color = .blue
+    @State public var baseColor: Color = .blue
     
     /// Secondary color for creating gradients
-    public var accentColor: Color = .purple
+    @State public var accentColor: Color = .purple
     
     /// Fixed height for the animation container
     public var height: CGFloat? = nil
@@ -25,11 +25,36 @@ public struct ParticleWaveEffect: View {
     /// Max particle size
     public var maxParticleSize: CGFloat = 12
     
+    /// Amount of color variation (0.0 to 1.0)
+    @State public var colorVariationIntensity: Float = 1.0
+    
+    /// Animation speed multiplier (0.5 to 2.0, where 1.0 is normal speed)
+    @State public var animationSpeed: Float = 1.0
+    
+    /// Wave amplitude multiplier (0.5 to 2.0, where 1.0 is normal amplitude)
+    @State public var waveAmplitudeMultiplier: Float = 1.0
+    
+    /// Particle density distribution (0.0 for uniform, 1.0 for more intensity-weighted)
+    @State public var particleDensity: Float = 0.5
+    
+    /// Controls whether the background wave line is shown
+    @State public var showWaveLine: Bool = true
+    
+    /// Controls whether particles change colors based on intensity
+    @State public var enableColorChanges: Bool = true
+    
+    /// Controls whether particles change size based on intensity
+    @State public var enableSizeChanges: Bool = true
+    
+    /// Controls whether particles move horizontally
+    @State public var enableMovement: Bool = true
+    
     // MARK: - Private Properties
     @State private var particles: [Particle] = []
     @State private var lastIntensity: Float = 0
     @State private var animationPhase: Double = 0
     @State private var isFirstAppear: Bool = true
+    @State private var loadedSettings: Bool = false
     
     // Data structure for each particle
     private struct Particle: Identifiable {
@@ -48,6 +73,106 @@ public struct ParticleWaveEffect: View {
     /// - Parameter intensity: Value between 0.0 and 1.0 driving the animation
     public init(intensity: Float) {
         self.intensity = max(0, min(1, intensity))
+        
+        // Load saved settings from UserDefaults
+        Logger.shared.log("Attempting to load animation settings for ParticleWaveEffect", level: .debug)
+        let settingsKey = "animationSettings"
+        
+        if let savedSettings = UserDefaults.standard.dictionary(forKey: settingsKey) {
+            Logger.shared.log("Found saved settings with key '\(settingsKey)' containing \(savedSettings.count) key-value pairs", level: .debug)
+            Logger.shared.log("Settings contents: \(savedSettings)", level: .debug)
+            
+            // Apply saved settings if available
+            if let colorVariation = savedSettings["colorVariationIntensity"] as? Double {
+                self.colorVariationIntensity = Float(colorVariation)
+                Logger.shared.log("Loaded colorVariationIntensity: \(colorVariation)", level: .debug)
+            } else {
+                Logger.shared.log("Missing colorVariationIntensity in settings", level: .debug)
+            }
+            
+            if let speed = savedSettings["animationSpeed"] as? Double {
+                self.animationSpeed = Float(speed)
+                Logger.shared.log("Loaded animationSpeed: \(speed)", level: .debug)
+            } else {
+                Logger.shared.log("Missing animationSpeed in settings", level: .debug)
+            }
+            
+            if let amplitude = savedSettings["waveAmplitudeMultiplier"] as? Double {
+                self.waveAmplitudeMultiplier = Float(amplitude)
+                Logger.shared.log("Loaded waveAmplitudeMultiplier: \(amplitude)", level: .debug)
+            } else {
+                Logger.shared.log("Missing waveAmplitudeMultiplier in settings", level: .debug)
+            }
+            
+            if let density = savedSettings["particleDensity"] as? Double {
+                self.particleDensity = Float(density)
+                Logger.shared.log("Loaded particleDensity: \(density)", level: .debug)
+            } else {
+                Logger.shared.log("Missing particleDensity in settings", level: .debug)
+            }
+            
+            if let showWave = savedSettings["showWaveLine"] as? Bool {
+                self.showWaveLine = showWave
+                Logger.shared.log("Loaded showWaveLine: \(showWave)", level: .debug)
+            } else {
+                Logger.shared.log("Missing showWaveLine in settings", level: .debug)
+            }
+            
+            if let enableColors = savedSettings["enableColorChanges"] as? Bool {
+                self.enableColorChanges = enableColors
+                Logger.shared.log("Loaded enableColorChanges: \(enableColors)", level: .debug)
+            } else {
+                Logger.shared.log("Missing enableColorChanges in settings", level: .debug)
+            }
+            
+            if let enableSizes = savedSettings["enableSizeChanges"] as? Bool {
+                self.enableSizeChanges = enableSizes
+                Logger.shared.log("Loaded enableSizeChanges: \(enableSizes)", level: .debug)
+            } else {
+                Logger.shared.log("Missing enableSizeChanges in settings", level: .debug)
+            }
+            
+            if let enableMove = savedSettings["enableMovement"] as? Bool {
+                self.enableMovement = enableMove
+                Logger.shared.log("Loaded enableMovement: \(enableMove)", level: .debug)
+            } else {
+                Logger.shared.log("Missing enableMovement in settings", level: .debug)
+            }
+            
+            // Load colors
+            if let redBase = savedSettings["baseColorRed"] as? Double,
+               let greenBase = savedSettings["baseColorGreen"] as? Double,
+               let blueBase = savedSettings["baseColorBlue"] as? Double,
+               let redAccent = savedSettings["accentColorRed"] as? Double,
+               let greenAccent = savedSettings["accentColorGreen"] as? Double,
+               let blueAccent = savedSettings["accentColorBlue"] as? Double {
+                
+                self.baseColor = Color(NSColor(red: CGFloat(redBase), green: CGFloat(greenBase), blue: CGFloat(blueBase), alpha: 1.0))
+                self.accentColor = Color(NSColor(red: CGFloat(redAccent), green: CGFloat(greenAccent), blue: CGFloat(blueAccent), alpha: 1.0))
+                
+                Logger.shared.log("Loaded colors - base: (\(redBase), \(greenBase), \(blueBase)), accent: (\(redAccent), \(greenAccent), \(blueAccent))", level: .debug)
+            } else {
+                Logger.shared.log("Missing color values in settings - keys found: baseColorRed=\(savedSettings["baseColorRed"] != nil), baseColorGreen=\(savedSettings["baseColorGreen"] != nil), baseColorBlue=\(savedSettings["baseColorBlue"] != nil), accentColorRed=\(savedSettings["accentColorRed"] != nil), accentColorGreen=\(savedSettings["accentColorGreen"] != nil), accentColorBlue=\(savedSettings["accentColorBlue"] != nil)", level: .debug)
+            }
+            
+            Logger.shared.log("Animation settings loaded successfully", level: .info)
+        } else {
+            Logger.shared.log("No saved settings found for ParticleWaveEffect with key '\(settingsKey)', using defaults", level: .info)
+            
+            // Try looking for JSON format
+            if let jsonString = UserDefaults.standard.string(forKey: "animationSettingsJSON") {
+                Logger.shared.log("Found JSON settings string with \(jsonString.count) characters", level: .debug)
+            } else {
+                Logger.shared.log("No JSON settings found either", level: .debug)
+            }
+            
+            // List all keys in UserDefaults
+            let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
+            Logger.shared.log("All UserDefaults keys: \(allKeys)", level: .debug)
+        }
+        
+        // Setup notification observer for settings changes
+        setupNotificationObserver()
     }
     
     // MARK: - Body
@@ -56,8 +181,8 @@ public struct ParticleWaveEffect: View {
         TimelineView(.animation) { timeline in
             GeometryReader { geometry in
                 Canvas { context, size in
-                    // Draw background wave if intensity is high enough
-                    if intensity > 0.2 {
+                    // Draw background wave if intensity is high enough and enabled
+                    if intensity > 0.2 && showWaveLine {
                         drawBackgroundWave(in: context, size: size)
                     }
                     
@@ -110,7 +235,19 @@ public struct ParticleWaveEffect: View {
                         // Initialize on first appear
                         resetParticles(in: geometry.size)
                         isFirstAppear = false
+                        
+                        // Listen for settings changes
+                        setupNotificationObserver()
                     }
+                }
+                .onDisappear {
+                    // Clean up notification observer when view disappears
+                    NotificationCenter.default.removeObserver(
+                        NotificationCenter.self,
+                        name: NSNotification.Name("AnimationSettingsChanged"),
+                        object: nil
+                    )
+                    Logger.shared.log("Removed notification observer from ParticleWaveEffect", level: .debug)
                 }
             }
             .frame(height: height)
@@ -119,9 +256,93 @@ public struct ParticleWaveEffect: View {
     
     // MARK: - Private Methods
     
+    private func setupNotificationObserver() {
+        // Register for settings change notifications
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("AnimationSettingsChanged"), object: nil, queue: .main) { notification in
+            Logger.shared.log("Received AnimationSettingsChanged notification in ParticleWaveEffect", level: .info)
+            
+            if let settings = notification.userInfo as? [String: Any] {
+                Logger.shared.log("Updating animation with new settings", level: .debug)
+                
+                // Store settings in UserDefaults for the next animation frame
+                UserDefaults.standard.set(settings, forKey: "animationSettings")
+                Logger.shared.log("Saved new settings to UserDefaults for next animation frame", level: .info)
+            } else {
+                Logger.shared.log("No settings found in notification", level: .warning)
+            }
+        }
+        
+        Logger.shared.log("Set up notification observer for settings changes", level: .debug)
+    }
+    
+    // Method to update settings on running ParticleWaveEffect
+    private mutating func updateLiveSettings(_ settings: [String: Any]) {
+        // Apply settings directly to this instance
+        if let colorVariation = settings["colorVariationIntensity"] as? Double {
+            self.colorVariationIntensity = Float(colorVariation)
+            Logger.shared.log("Updated colorVariationIntensity: \(colorVariation)", level: .debug)
+        }
+        
+        if let speed = settings["animationSpeed"] as? Double {
+            self.animationSpeed = Float(speed)
+            Logger.shared.log("Updated animationSpeed: \(speed)", level: .debug)
+        }
+        
+        if let amplitude = settings["waveAmplitudeMultiplier"] as? Double {
+            self.waveAmplitudeMultiplier = Float(amplitude)
+            Logger.shared.log("Updated waveAmplitudeMultiplier: \(amplitude)", level: .debug)
+        }
+        
+        if let density = settings["particleDensity"] as? Double {
+            self.particleDensity = Float(density)
+            Logger.shared.log("Updated particleDensity: \(density)", level: .debug)
+        }
+        
+        if let showWave = settings["showWaveLine"] as? Bool {
+            self.showWaveLine = showWave
+            Logger.shared.log("Updated showWaveLine: \(showWave)", level: .debug)
+        }
+        
+        if let enableColors = settings["enableColorChanges"] as? Bool {
+            self.enableColorChanges = enableColors
+            Logger.shared.log("Updated enableColorChanges: \(enableColors)", level: .debug)
+        }
+        
+        if let enableSizes = settings["enableSizeChanges"] as? Bool {
+            self.enableSizeChanges = enableSizes
+            Logger.shared.log("Updated enableSizeChanges: \(enableSizes)", level: .debug)
+        }
+        
+        if let enableMove = settings["enableMovement"] as? Bool {
+            self.enableMovement = enableMove
+            Logger.shared.log("Updated enableMovement: \(enableMove)", level: .debug)
+        }
+        
+        // Update colors
+        if let redBase = settings["baseColorRed"] as? Double,
+           let greenBase = settings["baseColorGreen"] as? Double,
+           let blueBase = settings["baseColorBlue"] as? Double {
+            self.baseColor = Color(NSColor(red: CGFloat(redBase), green: CGFloat(greenBase), blue: CGFloat(blueBase), alpha: 1.0))
+            Logger.shared.log("Updated baseColor", level: .debug)
+        }
+        
+        if let redAccent = settings["accentColorRed"] as? Double,
+           let greenAccent = settings["accentColorGreen"] as? Double,
+           let blueAccent = settings["accentColorBlue"] as? Double {
+            self.accentColor = Color(NSColor(red: CGFloat(redAccent), green: CGFloat(greenAccent), blue: CGFloat(blueAccent), alpha: 1.0))
+            Logger.shared.log("Updated accentColor", level: .debug)
+        }
+        
+        // Also save to UserDefaults for future instances
+        UserDefaults.standard.set(settings, forKey: "animationSettings")
+        
+        // Force update colors immediately
+        updateParticleColors()
+    }
+    
     /// Draw a subtle background wave effect
     private func drawBackgroundWave(in context: GraphicsContext, size: CGSize) {
-        let waveHeight = size.height * CGFloat(intensity) * 0.4
+        let waveHeight = size.height * CGFloat(intensity) * 0.4 * CGFloat(waveAmplitudeMultiplier)
         let segments = 20
         let segmentWidth = size.width / CGFloat(segments)
         
@@ -210,38 +431,55 @@ public struct ParticleWaveEffect: View {
     
     /// Update particle properties for the next animation frame
     private func updateParticles(in size: CGSize) {
-        // Increment global animation phase
-        animationPhase += 0.05
+        // Check for settings updates in UserDefaults
+        checkForSettingsUpdates()
+        
+        // Increment global animation phase using animation speed parameter
+        animationPhase += 0.05 * Double(animationSpeed) * (enableMovement ? 1.0 : 0.0)
         
         // Calculate wave parameters based on intensity
         let centerY = size.height / 2
-        let spread = 10 + CGFloat(intensity) * (size.height * 0.3)
+        let spread = 10 + CGFloat(intensity) * (size.height * 0.3) * CGFloat(waveAmplitudeMultiplier)
         
         // Update each particle
         for i in 0..<particles.count {
             // Horizontal movement
             var particle = particles[i]
-            particle.position.x += particle.speed
+            
+            if enableMovement {
+                particle.position.x += particle.speed * CGFloat(animationSpeed)
+            }
             
             // Reset position when particle goes off-screen
             if particle.position.x > size.width {
                 particle.position.x = 0
                 
-                // Update size and speed based on current intensity
-                particle.size = CGFloat.random(in: 3...maxParticleSize) * (0.5 + CGFloat(intensity) * 0.5)
-                particle.speed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2
-                particle.color = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
+                // Update size and speed based on current intensity and density parameter
+                let densityFactor = 1.0 - (CGFloat(particleDensity) * (1.0 - CGFloat(intensity)))
+                
+                if enableSizeChanges {
+                    particle.size = CGFloat.random(in: 3...maxParticleSize) * (0.5 + CGFloat(intensity) * 0.5) * densityFactor
+                }
+                
+                particle.speed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2 * CGFloat(animationSpeed)
+                
+                if enableColorChanges {
+                    particle.color = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
+                }
+                
                 particle.opacity = Double.random(in: 0.5...0.9)
             }
             
             // Vertical movement with wave pattern
-            let waveAmplitude = spread * (particle.size / maxParticleSize)
-            let waveFrequency = 1.0 + (particle.size / maxParticleSize)
-            let yOffset = sin(
-                (particle.phase + Double(particle.position.x) / Double(size.width) * 4 * .pi + animationPhase) * waveFrequency
-            ) * Double(waveAmplitude)
-            
-            particle.position.y = centerY + CGFloat(yOffset)
+            if enableMovement {
+                let waveAmplitude = spread * (particle.size / maxParticleSize)
+                let waveFrequency = 1.0 + (particle.size / maxParticleSize)
+                let yOffset = sin(
+                    (particle.phase + Double(particle.position.x) / Double(size.width) * 4 * .pi + animationPhase) * waveFrequency
+                ) * Double(waveAmplitude)
+                
+                particle.position.y = centerY + CGFloat(yOffset)
+            }
             
             // Update particle in array
             particles[i] = particle
@@ -259,8 +497,63 @@ public struct ParticleWaveEffect: View {
         }
     }
     
+    /// Check for settings updates in UserDefaults and apply them
+    private func checkForSettingsUpdates() {
+        guard let settings = UserDefaults.standard.dictionary(forKey: "animationSettings") else {
+            return
+        }
+        
+        // Apply any animation settings from UserDefaults
+        if let colorVariation = settings["colorVariationIntensity"] as? Double {
+            colorVariationIntensity = Float(colorVariation)
+        }
+        
+        if let speed = settings["animationSpeed"] as? Double {
+            animationSpeed = Float(speed)
+        }
+        
+        if let amplitude = settings["waveAmplitudeMultiplier"] as? Double {
+            waveAmplitudeMultiplier = Float(amplitude)
+        }
+        
+        if let density = settings["particleDensity"] as? Double {
+            particleDensity = Float(density)
+        }
+        
+        if let showWave = settings["showWaveLine"] as? Bool {
+            showWaveLine = showWave
+        }
+        
+        if let enableColors = settings["enableColorChanges"] as? Bool {
+            enableColorChanges = enableColors
+        }
+        
+        if let enableSizes = settings["enableSizeChanges"] as? Bool {
+            enableSizeChanges = enableSizes
+        }
+        
+        if let enableMove = settings["enableMovement"] as? Bool {
+            enableMovement = enableMove
+        }
+        
+        // Update colors if needed
+        if let redBase = settings["baseColorRed"] as? Double,
+           let greenBase = settings["baseColorGreen"] as? Double,
+           let blueBase = settings["baseColorBlue"] as? Double {
+            baseColor = Color(NSColor(red: CGFloat(redBase), green: CGFloat(greenBase), blue: CGFloat(blueBase), alpha: 1.0))
+        }
+        
+        if let redAccent = settings["accentColorRed"] as? Double,
+           let greenAccent = settings["accentColorGreen"] as? Double,
+           let blueAccent = settings["accentColorBlue"] as? Double {
+            accentColor = Color(NSColor(red: CGFloat(redAccent), green: CGFloat(greenAccent), blue: CGFloat(blueAccent), alpha: 1.0))
+        }
+    }
+    
     /// Update particle colors based on the current intensity
     private func updateParticleColors() {
+        if !enableColorChanges { return }
+        
         // Update colors for all particles
         for i in 0..<particles.count {
             var particle = particles[i]
@@ -272,6 +565,7 @@ public struct ParticleWaveEffect: View {
     /// Get a color for a particle based on intensity and randomness
     private func getParticleColor(intensity: Float, random: CGFloat) -> Color {
         let energyLevel = Double(intensity)
+        let colorVariation = Double(colorVariationIntensity)
         
         // At low intensity, use mostly base color
         if energyLevel < 0.3 {
@@ -283,10 +577,11 @@ public struct ParticleWaveEffect: View {
         } 
         // At high intensity, create more vibrant colors
         else {
-            // Create vibrant variations
-            let hue = baseColor.hsbComponents.hue + (random * 0.2) - 0.1 + (energyLevel * 0.1)
-            let saturation = min(1.0, baseColor.hsbComponents.saturation + (energyLevel * 0.2))
-            let brightness = min(1.0, baseColor.hsbComponents.brightness + (energyLevel * 0.3))
+            // Create vibrant variations based on colorVariationIntensity
+            let hueVariation = (random * 0.2) - 0.1 + (energyLevel * 0.1)
+            let hue = baseColor.hsbComponents.hue + hueVariation * colorVariation
+            let saturation = min(1.0, baseColor.hsbComponents.saturation + (energyLevel * 0.2) * colorVariation)
+            let brightness = min(1.0, baseColor.hsbComponents.brightness + (energyLevel * 0.3) * colorVariation)
             
             return Color(hue: hue, saturation: saturation, brightness: brightness)
         }
@@ -328,6 +623,62 @@ public extension ParticleWaveEffect {
     func maxParticleSize(_ size: CGFloat) -> ParticleWaveEffect {
         var copy = self
         copy.maxParticleSize = size
+        return copy
+    }
+    
+    /// Sets the color variation intensity (0.0 to 1.0)
+    func colorVariationIntensity(_ intensity: Float) -> ParticleWaveEffect {
+        var copy = self
+        copy.colorVariationIntensity = max(0, min(1, intensity))
+        return copy
+    }
+    
+    /// Sets the animation speed multiplier (0.5 to 2.0)
+    func animationSpeed(_ speed: Float) -> ParticleWaveEffect {
+        var copy = self
+        copy.animationSpeed = max(0.5, min(2.0, speed))
+        return copy
+    }
+    
+    /// Sets the wave amplitude multiplier (0.5 to 2.0)
+    func waveAmplitudeMultiplier(_ multiplier: Float) -> ParticleWaveEffect {
+        var copy = self
+        copy.waveAmplitudeMultiplier = max(0.5, min(2.0, multiplier))
+        return copy
+    }
+    
+    /// Sets the particle density distribution (0.0 to 1.0)
+    func particleDensity(_ density: Float) -> ParticleWaveEffect {
+        var copy = self
+        copy.particleDensity = max(0, min(1, density))
+        return copy
+    }
+    
+    /// Enable or disable the background wave line
+    func showWaveLine(_ enabled: Bool) -> ParticleWaveEffect {
+        var copy = self
+        copy.showWaveLine = enabled
+        return copy
+    }
+    
+    /// Enable or disable color changes based on intensity
+    func enableColorChanges(_ enabled: Bool) -> ParticleWaveEffect {
+        var copy = self
+        copy.enableColorChanges = enabled
+        return copy
+    }
+    
+    /// Enable or disable size changes based on intensity
+    func enableSizeChanges(_ enabled: Bool) -> ParticleWaveEffect {
+        var copy = self
+        copy.enableSizeChanges = enabled
+        return copy
+    }
+    
+    /// Enable or disable particle movement
+    func enableMovement(_ enabled: Bool) -> ParticleWaveEffect {
+        var copy = self
+        copy.enableMovement = enabled
         return copy
     }
 }
