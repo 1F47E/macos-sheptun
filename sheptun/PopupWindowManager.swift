@@ -318,10 +318,12 @@ struct RecordingSessionView: View {
                 
                 case .transcribing:
                     // Transcribing UI
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(1.2)
-                        .padding()
+                    ParticleWaveEffect(intensity: 0.5)
+                        .height(40)
+                        .baseColor(.blue)
+                        .accentColor(.purple)
+                        .loadingMode(true)
+                        .padding(.horizontal)
                 
                 case .completed(let text):
                     // Success UI
@@ -351,7 +353,7 @@ struct RecordingSessionView: View {
                 }
             }
         }
-        .frame(width: 200, height: windowManager.currentState.isError ? 120 : 80)
+        .frame(width: 200, height: windowManager.currentState.windowHeight)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.85))
@@ -367,13 +369,22 @@ struct RecordingSessionView: View {
     }
 }
 
-// Extension to check if the state is an error state
+// Extension to check if the state is an error state and get appropriate height
 extension PopupWindowManager.PopupState {
     var isError: Bool {
         if case .error(_) = self {
             return true
         }
         return false
+    }
+    
+    var windowHeight: CGFloat {
+        switch self {
+        case .error(_):
+            return 120
+        case .recording, .transcribing, .completed:
+            return 80
+        }
     }
 }
 
