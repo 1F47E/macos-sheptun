@@ -95,7 +95,7 @@ class PopupWindowManager: ObservableObject {
         
         // Create a window without standard decorations and non-activating
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
+            contentRect: NSRect(x: 0, y: 0, width: 160, height: 60),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -145,10 +145,6 @@ class PopupWindowManager: ObservableObject {
         // Update state to show we're transcribing
         currentState = .transcribing
         logger.log("Starting transcription process", level: .info)
-        
-        // Trigger the loading animation in the existing view
-        // This causes a smooth transition rather than recreating the view
-        animationState.enterLoadingMode()
         
         // Stop recording first
         audioRecorder.stopRecording()
@@ -338,30 +334,30 @@ struct RecordingSessionView: View {
                 case .recording:
                     // Recording UI - Minimalistic - Now using the shared animation state
                     ParticleWaveEffect(intensity: audioRecorder.audioLevel)
-                        .height(40)
+                        .height(30)
                         .baseColor(.blue)
                         .accentColor(.purple)
                         .loadingMode(animationState.isInLoadingMode)
                         .animationSpeed(1.5)
-                        .particleCount(35)
-                        .padding(.horizontal)
+                        .particleCount(25)
+                        .padding(.horizontal, 5)
                 
                 case .transcribing:
-                    // Transcribing UI - Same component with loading flag from shared state
+                    // Simpler loading UI
                     ParticleWaveEffect(intensity: 0.5)
-                        .height(40)
+                        .height(30)
                         .baseColor(.blue)
                         .accentColor(.purple)
-                        .loadingMode(animationState.isInLoadingMode)
-                        .animationSpeed(1.5)
-                        .particleCount(10)
-                        .padding(.horizontal)
+                        .loadingMode(true)
+                        .animationSpeed(1.0)
+                        .particleCount(3)
+                        .padding(.horizontal, 5)
                 
                 case .completed(let text):
                     // Success UI
                     Image(systemName: "checkmark.circle.fill")
                         .resizable()
-                        .frame(width: 30, height: 30)
+                        .frame(width: 25, height: 25)
                         .foregroundColor(.green)
                         .padding()
                 
@@ -370,27 +366,27 @@ struct RecordingSessionView: View {
                     VStack {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .resizable()
-                            .frame(width: 25, height: 22)
+                            .frame(width: 20, height: 18)
                             .foregroundColor(.red)
-                            .padding(.top, 8)
+                            .padding(.top, 5)
                         
                         Text("Error: \(message)")
-                            .font(.system(size: 12))
+                            .font(.system(size: 11))
                             .foregroundColor(.white)
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal)
+                            .padding(.horizontal, 5)
                     }
-                    .frame(width: 200, height: 120)
+                    .frame(width: 160, height: 80)
                 }
             }
         }
-        .frame(width: 200, height: windowManager.currentState.windowHeight)
+        .frame(width: 160, height: windowManager.currentState.windowHeight)
         .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.85))
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.8))
         )
-        .shadow(color: Color.black.opacity(0.3), radius: 6, x: 0, y: 2)
+        .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
     }
     
     private func formatTime(_ timeInterval: TimeInterval) -> String {
@@ -413,9 +409,9 @@ extension PopupWindowManager.PopupState {
     var windowHeight: CGFloat {
         switch self {
         case .error(_):
-            return 120
-        case .recording, .transcribing, .completed:
             return 80
+        case .recording, .transcribing, .completed:
+            return 60
         }
     }
 }

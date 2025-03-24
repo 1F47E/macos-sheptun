@@ -342,16 +342,32 @@ public struct ParticleWaveEffect: View {
         if isLoading {
             loadingPhase = 0
             
-            // If we have more than 10 particles, keep only the first 10
-            if particles.count > 10 {
-                particles = Array(particles.prefix(10))
-            }
-            
-            // Boost speeds for more dynamic loading animation
-            for i in 0..<particles.count {
-                var particle = particles[i]
-                particle.speed *= 1.5
-                particles[i] = particle
+            // Keep only one particle for loading mode
+            if particles.count > 0 {
+                // Find a particle closest to center or create one near center
+                let centerX = particles.first?.position.x ?? 50
+                let centerY = particles.first?.position.y ?? 20
+                
+                // Create a particle that's near the center but not exactly at it
+                // This allows for a smooth animation toward center
+                let nearCenterPosition = CGPoint(
+                    x: centerX + CGFloat.random(in: -30...30),
+                    y: centerY + CGFloat.random(in: -10...10)
+                )
+                
+                // Use an existing particle if possible
+                var centerParticle = particles.first!
+                centerParticle.position = nearCenterPosition
+                
+                // Set a good size for the loading indicator
+                centerParticle.size = 8.0
+                centerParticle.opacity = 0.8
+                
+                // Keep only this particle
+                particles = [centerParticle]
+            } else {
+                // Create a single particle if none exists
+                particles = [createRandomParticle(nearCenter: true)]
             }
         } else {
             // When exiting loading mode, ensure we have enough particles
@@ -367,8 +383,8 @@ public struct ParticleWaveEffect: View {
         }
     }
     
-    // Helper to create a random particle, optionally placing it off-screen
-    private func createRandomParticle(offScreen: Bool = false) -> Particle {
+    // Helper to create a random particle, optionally placing it off-screen or near center
+    private func createRandomParticle(offScreen: Bool = false, nearCenter: Bool = false) -> Particle {
         let position: CGPoint
         let phase = Double.random(in: 0...2 * .pi)
         let size = CGFloat.random(in: 3...maxParticleSize) * (0.5 + CGFloat(intensity) * 0.5)
@@ -376,7 +392,11 @@ public struct ParticleWaveEffect: View {
         let color = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
         let opacity = Double.random(in: 0.5...0.9)
         
-        if offScreen {
+        if nearCenter {
+            // Position near but not exactly at center for smooth movement
+            position = CGPoint(x: 50 + CGFloat.random(in: -20...20), 
+                               y: 20 + CGFloat.random(in: -10...10))
+        } else if offScreen {
             // Position just off the left edge
             position = CGPoint(x: -size, y: 20 + CGFloat.random(in: 0...20))
         } else {
@@ -605,105 +625,101 @@ public struct ParticleWaveEffect: View {
         if isLoading {
             loadingPhase += 0.05 * Double(animationSpeed)
             
-            // In loading mode, limit to 10 particles
-            if particles.count > 10 {
-                particles = Array(particles.prefix(10))
+            // In loading mode, ensure there's only one particle
+            if particles.count > 1 {
+                particles = [particles.first!]
+            } else if particles.isEmpty {
+                particles = [createRandomParticle(nearCenter: true)]
             }
+            
+            // Smoothly move the particle to the center with a pulsing effect
+            if let centerIndex = particles.indices.first {
+                var centerParticle = particles[centerIndex]
+                
+                // Calculate center of view
+                let centerX = size.width / 2
+                let centerY = size.height / 2
+                
+                // Smooth movement to center
+                let dx = centerX - centerParticle.position.x
+                let dy = centerY - centerParticle.position.y
+                let distance = sqrt(dx * dx + dy * dy)
+                
+                // Move toward center more quickly when further away
+                let moveSpeed = min(0.1, distance * 0.05)
+                
+                if distance > 1.0 {
+                    centerParticle.position.x += dx * moveSpeed
+                    centerParticle.position.y += dy * moveSpeed
+                } else {
+                    // Once at center, add slight movement for visual interest
+                    let jitter = sin(loadingPhase * 1.2) * 1.0
+                    centerParticle.position.x = centerX + jitter
+                    centerParticle.position.y = centerY + jitter * 0.5
+                }
+                
+                // Apply pulsing effect to size if enabled
+                if enableSizeChanges {
+                    let pulseSize = 6.0 + (sin(loadingPhase * 2.0) + 1) * 4.0
+                    centerParticle.size = pulseSize
+                }
+                
+                // Apply color effect if enabled
+                if enableColorChanges {
+                    centerParticle.color = getParticleColor(intensity: 0.8, random: 0.5)
+                }
+                
+                // Vary opacity for visual interest
+                centerParticle.opacity = 0.6 + abs(sin(loadingPhase * 1.5)) * 0.4
+                
+                // Update the particle
+                particles[centerIndex] = centerParticle
+            }
+            
+            return // Skip normal mode updates when in loading mode
         }
         
         // Calculate wave parameters based on intensity
         let centerY = size.height / 2
-        let centerX = size.width / 2
         let spread = 10 + CGFloat(intensity) * (size.height * 0.3) * CGFloat(waveAmplitudeMultiplier)
         
         // Update each particle
         for i in 0..<particles.count {
             var particle = particles[i]
             
-            if isLoading {
-                // Loading mode: particles gather in center with jittery movement
+            if enableMovement {
+                particle.position.x += particle.speed * CGFloat(animationSpeed)
+            }
+            
+            // Reset position when particle goes off-screen
+            if particle.position.x > size.width {
+                particle.position.x = 0
                 
-                // Calculate distance from center
-                let dx = particle.position.x - centerX
-                let dy = particle.position.y - centerY
-                let distanceFromCenter = sqrt(dx * dx + dy * dy)
+                // Update size and speed based on current intensity and density parameter
+                let densityFactor = 1.0 - (CGFloat(particleDensity) * (1.0 - CGFloat(intensity)))
                 
-                // Normalize direction vector
-                let dirX = distanceFromCenter > 0 ? dx / distanceFromCenter : 0
-                let dirY = distanceFromCenter > 0 ? dy / distanceFromCenter : 0
-                
-                // Move particles toward center with progressively stronger pull as they get closer
-                let pullStrength: CGFloat = 3.0 + (30.0 / max(5, distanceFromCenter))
-                
-                // Add jittery effect based on loading phase and particle's unique phase
-                let jitterAmount = max(5, distanceFromCenter * 0.2)
-                let jitterX = sin(loadingPhase * 3.0 + particle.phase) * jitterAmount
-                let jitterY = cos(loadingPhase * 2.5 + particle.phase * 1.3) * jitterAmount
-                
-                // Move particle toward center with jitter effect
-                if distanceFromCenter > 20 {
-                    particle.position.x -= dirX * pullStrength + jitterX * 0.2
-                    particle.position.y -= dirY * pullStrength + jitterY * 0.2
-                } else {
-                    // Circular orbit when close to center
-                    let orbitSpeed = 3.0 + particle.speed * 0.7
-                    let orbitRadius = 10.0 + (sin(loadingPhase + particle.phase) * 5.0)
-                    particle.position.x = centerX + cos(loadingPhase * orbitSpeed + particle.phase) * orbitRadius + jitterX * 0.5
-                    particle.position.y = centerY + sin(loadingPhase * orbitSpeed + particle.phase) * orbitRadius + jitterY * 0.5
-                }
-                
-                // Pulse particle size during loading
                 if enableSizeChanges {
-                    let basePulseSize = 3.0 + (sin(loadingPhase * 4.0 + particle.phase) + 1) * 3.0
-                    particle.size = basePulseSize + (particle.size * 0.1)
+                    particle.size = CGFloat.random(in: 3...maxParticleSize) * (0.5 + CGFloat(intensity) * 0.5) * densityFactor
                 }
                 
-                // Enhance color during loading
+                particle.speed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2 * CGFloat(animationSpeed)
+                
                 if enableColorChanges {
-                    let loadingIntensity = 0.6 + sin(loadingPhase * 2.0) * 0.4
-                    particle.color = getParticleColor(intensity: Float(loadingIntensity), random: CGFloat.random(in: 0...1))
+                    particle.color = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
                 }
                 
-                // Vary opacity for visual interest
-                particle.opacity = 0.4 + abs(sin(loadingPhase * 3.0 + particle.phase)) * 0.6
-            } 
-            else {
-                // Normal mode: wave animation
+                particle.opacity = Double.random(in: 0.5...0.9)
+            }
+            
+            // Vertical movement with wave pattern
+            if enableMovement {
+                let waveAmplitude = spread * (particle.size / maxParticleSize)
+                let waveFrequency = 1.0 + (particle.size / maxParticleSize)
+                let yOffset = sin(
+                    (particle.phase + Double(particle.position.x) / Double(size.width) * 4 * .pi + animationPhase) * waveFrequency
+                ) * Double(waveAmplitude)
                 
-                if enableMovement {
-                    particle.position.x += particle.speed * CGFloat(animationSpeed)
-                }
-                
-                // Reset position when particle goes off-screen
-                if particle.position.x > size.width {
-                    particle.position.x = 0
-                    
-                    // Update size and speed based on current intensity and density parameter
-                    let densityFactor = 1.0 - (CGFloat(particleDensity) * (1.0 - CGFloat(intensity)))
-                    
-                    if enableSizeChanges {
-                        particle.size = CGFloat.random(in: 3...maxParticleSize) * (0.5 + CGFloat(intensity) * 0.5) * densityFactor
-                    }
-                    
-                    particle.speed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2 * CGFloat(animationSpeed)
-                    
-                    if enableColorChanges {
-                        particle.color = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
-                    }
-                    
-                    particle.opacity = Double.random(in: 0.5...0.9)
-                }
-                
-                // Vertical movement with wave pattern
-                if enableMovement {
-                    let waveAmplitude = spread * (particle.size / maxParticleSize)
-                    let waveFrequency = 1.0 + (particle.size / maxParticleSize)
-                    let yOffset = sin(
-                        (particle.phase + Double(particle.position.x) / Double(size.width) * 4 * .pi + animationPhase) * waveFrequency
-                    ) * Double(waveAmplitude)
-                    
-                    particle.position.y = centerY + CGFloat(yOffset)
-                }
+                particle.position.y = centerY + CGFloat(yOffset)
             }
             
             // Update particle in array
@@ -711,7 +727,7 @@ public struct ParticleWaveEffect: View {
         }
         
         // Clean up excess particles, but only in normal mode
-        if !isLoading && particles.count > particleCount * 2 {
+        if particles.count > particleCount * 2 {
             particles.removeFirst(particles.count - particleCount * 2)
         }
         
