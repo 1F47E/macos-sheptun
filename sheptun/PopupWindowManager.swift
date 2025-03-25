@@ -1,23 +1,6 @@
 import Cocoa
 import SwiftUI
 
-// Animation state manager to allow smooth transitions between states
-class AnimationStateManager: ObservableObject {
-    static let shared = AnimationStateManager()
-    
-    @Published var isInLoadingMode: Bool = false
-    @Published var intensity: Float = 0.0
-    
-    func enterLoadingMode() {
-        // Smooth transition to loading mode
-        isInLoadingMode = true
-    }
-    
-    func exitLoadingMode() {
-        isInLoadingMode = false
-    }
-}
-
 class PopupWindowManager: ObservableObject {
     static let shared = PopupWindowManager()
     
@@ -27,8 +10,11 @@ class PopupWindowManager: ObservableObject {
     private let openAIManager = OpenAIManager.shared
     private let settingsManager = SettingsManager.shared
     private var audioLevelSimulationTimer: Timer?
-    // Reference to the shared animation state
-    private let animationState = AnimationStateManager.shared
+    
+    // Create a function to get a fresh RecordingSessionView instead of a stored property
+    private func createRecordingSessionView() -> RecordingSessionView {
+        return RecordingSessionView()
+    }
     
     // Add a way to track the current state of the popup
     enum PopupState {
@@ -81,7 +67,7 @@ class PopupWindowManager: ObservableObject {
                 // If already visible, start transcription process
                 startTranscription()
             } else {
-                // If not visible, show the popup and start recording
+                // Show the popup and start recording
                 showPopupWindow()
                 logger.log("Popup window toggled on", level: .info)
             }
@@ -89,29 +75,21 @@ class PopupWindowManager: ObservableObject {
     }
     
     func showPopupWindow() {
-        // If window already exists, just show it
+        // If window already exists, close it first to ensure fresh state
         if let window = popupWindow {
-            logger.log("Reusing existing popup window", level: .debug)
-            positionWindowAtTopCenter(window)
-            window.orderFront(nil)
-            
-            // Reset state to recording
-            currentState = .recording
-            animationState.exitLoadingMode()
-            
-            // Ensure animation is properly reset by recreating the hosting view with a fresh RecordingSessionView
-            window.contentView = NSHostingView(rootView: RecordingSessionView())
-            
-            // Start audio recording fresh
-            audioRecorder.startRecording()
-            return
+            window.close()
+            popupWindow = nil
+            logger.log("Closed existing window before creating new one", level: .debug)
         }
         
         logger.log("Creating new recording session window", level: .info)
         
+        // Get the height for the current state
+        let height = currentState.windowHeight
+        
         // Create a window without standard decorations and non-activating
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 160, height: 60),
+            contentRect: NSRect(x: 0, y: 0, width: 160, height: height),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -124,8 +102,12 @@ class PopupWindowManager: ObservableObject {
         window.level = .floating
         window.isReleasedWhenClosed = false
         
-        // Set up the window to be frameless and visually appealing
-        let hostingView = NSHostingView(rootView: RecordingSessionView())
+        // Reset state to recording
+        currentState = .recording
+        
+        // Create a fresh view each time
+        let freshView = createRecordingSessionView()
+        let hostingView = NSHostingView(rootView: freshView)
         window.contentView = hostingView
         
         // Position window at top center of the screen
@@ -135,12 +117,12 @@ class PopupWindowManager: ObservableObject {
         window.orderFront(nil)
         
         // Start audio recording and reset state
-        currentState = .recording
-        animationState.exitLoadingMode() // Ensure we start in normal mode
         audioRecorder.startRecording()
         
         // Keep a reference to the window
         self.popupWindow = window
+        
+        logger.log("New recording session window created and displayed", level: .debug)
     }
     
     // New method to handle showing popup after permission check
@@ -159,8 +141,26 @@ class PopupWindowManager: ObservableObject {
         guard popupWindow != nil else { return }
         
         // Update state to show we're transcribing
-        currentState = .transcribing
-        logger.log("Starting transcription process", level: .info)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.currentState = .transcribing
+            self.logger.log("Starting transcription process", level: .info)
+            
+            // Update the window size for the new state
+            if let window = self.popupWindow {
+                // Update window size
+                let height = self.currentState.windowHeight
+                window.setContentSize(NSSize(width: 160, height: height))
+                
+                // Force refresh the view with new state
+                let freshView = self.createRecordingSessionView()
+                let hostingView = NSHostingView(rootView: freshView)
+                window.contentView = hostingView
+                
+                // Reposition to account for size change
+                self.positionWindowAtTopCenter(window)
+            }
+        }
         
         // Stop recording first
         audioRecorder.stopRecording()
@@ -168,16 +168,15 @@ class PopupWindowManager: ObservableObject {
         // Stop audio level simulation
         stopAudioLevelSimulation()
         
-        // Enter loading mode
-        animationState.enterLoadingMode()
-        
         // Get the API key from settings
         let apiKey = settingsManager.getCurrentAPIKey()
         
         if apiKey.isEmpty {
             // Handle missing API key
-            currentState = .error("API key not set in settings")
-            logger.log("Cannot transcribe: API key not set", level: .error)
+            DispatchQueue.main.async { [weak self] in
+                self?.currentState = .error("API key not set in settings")
+                self?.logger.log("Cannot transcribe: API key not set", level: .error)
+            }
             
             // Close the window after a delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
@@ -234,9 +233,6 @@ class PopupWindowManager: ObservableObject {
                 
                 // Handle the result on the main thread
                 await MainActor.run {
-                    // Exit loading mode
-                    self.animationState.exitLoadingMode()
-                    
                     switch result {
                     case .success(let transcription):
                         // Transcription successful
@@ -261,10 +257,14 @@ class PopupWindowManager: ObservableObject {
                             let cmdVUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
                             cmdVUp?.flags = .maskCommand
                             cmdVUp?.post(tap: .cghidEventTap)
+                            
+                            // Close window after pasting (with a small delay)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                                self?.closePopupWindow()
+                            }
                         }
                         
-                        // Close window immediately
-                        self.closePopupWindow()
+                        // Don't close window here - we'll do it after pasting
                         
                     case .failure(let error):
                         // Transcription failed
@@ -279,9 +279,6 @@ class PopupWindowManager: ObservableObject {
                 }
             } catch {
                 await MainActor.run {
-                    // Exit loading mode
-                    self.animationState.exitLoadingMode()
-                    
                     self.logger.log("Failed to process audio: \(error.localizedDescription)", level: .error)
                     self.currentState = .error("Failed to process audio: \(error.localizedDescription)")
                     
@@ -302,8 +299,8 @@ class PopupWindowManager: ObservableObject {
             // Stop audio level simulation
             stopAudioLevelSimulation()
             
-            // Reset animation state
-            animationState.exitLoadingMode()
+            // Reset state to recording for next session
+            currentState = .recording
             
             // Close the window
             window.close()
@@ -316,15 +313,19 @@ class PopupWindowManager: ObservableObject {
         guard let screen = NSScreen.main else { return }
         
         let screenFrame = screen.visibleFrame
-        let windowSize = window.frame.size
         
+        // Make sure window size matches current state
+        let height = currentState.windowHeight
+        window.setContentSize(NSSize(width: 160, height: height))
+        
+        let windowSize = window.frame.size
         let centerX = screenFrame.midX - (windowSize.width / 2)
         let bottomY = screenFrame.minY + 20 // 20px from bottom
         
         let bottomCenterPoint = NSPoint(x: centerX, y: bottomY)
         window.setFrameOrigin(bottomCenterPoint)
         
-        logger.log("Positioned window at: x=\(centerX), y=\(bottomY)", level: .debug)
+        logger.log("Positioned window at: x=\(centerX), y=\(bottomY) with height: \(height)", level: .debug)
     }
     
     // Audio level simulation methods
@@ -338,7 +339,6 @@ class PopupWindowManager: ObservableObject {
             
             DispatchQueue.main.async {
                 self?.audioRecorder.audioLevel = Float(level)
-                self?.animationState.intensity = Float(level)
             }
         }
     }
@@ -375,9 +375,10 @@ class PopupWindowManager: ObservableObject {
         window.level = .floating
         window.isReleasedWhenClosed = false
         
-        // Set up the window with the error view
+        // Set up the window with the error view - use a fresh view
         currentState = .noMicrophone
-        let hostingView = NSHostingView(rootView: RecordingSessionView())
+        let freshView = createRecordingSessionView()
+        let hostingView = NSHostingView(rootView: freshView)
         window.contentView = hostingView
         
         // Position window at top center of the screen
@@ -395,7 +396,9 @@ class PopupWindowManager: ObservableObject {
 struct RecordingSessionView: View {
     @ObservedObject private var audioRecorder = AudioRecorder.shared
     @ObservedObject private var windowManager = PopupWindowManager.shared
-    @ObservedObject private var animationState = AnimationStateManager.shared
+    
+    // Track local animation states
+    @State private var isAnimationActive = false
     
     var body: some View {
         ZStack {
@@ -403,10 +406,9 @@ struct RecordingSessionView: View {
                 switch windowManager.currentState {
                 case .recording:
                     VStack(spacing: 2) {
-                        // Current implementation uses ParticleWaveEffect for visualization
-                        ParticleWaveEffect(intensity: audioRecorder.audioLevel)
-                            .loadingMode(false)
-                            .frame(height: 40)
+                        // Use the new VoiceAnimation instead of ParticleWaveEffect
+                        VoiceAnimation(intensity: audioRecorder.audioLevel)
+                            .frame(width: 150, height: 40)
                             .padding(.horizontal, 5)
                         
                         // Show recording time
@@ -417,12 +419,23 @@ struct RecordingSessionView: View {
                                 .padding(.top, 4)
                         }
                     }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 8)
                 
                 case .transcribing:
-                    // Loading indicator UI
-                    ParticleWaveEffect(intensity: 0.1)
-                        .loadingMode(true)
-                        .frame(width: 200, height: 100)
+                    VStack(spacing: 5) {
+                        // Existing TranscribingAnimation
+                        TranscribingAnimation()
+                            .frame(width: 150, height: 40)
+                            .padding(.horizontal, 5)
+                        
+                        Text("Transcribing...")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.bottom, 5)
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 8)
                 
                 case .completed(let text):
                     // Success UI
@@ -448,7 +461,7 @@ struct RecordingSessionView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 5)
                     }
-                    .frame(width: 160, height: 280)
+                    .frame(width: 160)
                 
                 case .noMicrophone:
                     // No microphone UI
@@ -499,6 +512,10 @@ struct RecordingSessionView: View {
                     .frame(width: 240, height: 120)
                 }
             }
+            .frame(maxWidth: .infinity)
+            .background(Color.black.opacity(0.7))
+            .cornerRadius(8)
+            .shadow(color: .black.opacity(0.2), radius: 5)
             
             // Close button - positioned in the top-right corner
             // Only show when not in transcribing state
@@ -525,11 +542,12 @@ struct RecordingSessionView: View {
             }
         }
         .frame(width: 160, height: windowManager.currentState.windowHeight)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.8))
-        )
-        .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
+        .onAppear {
+            isAnimationActive = true
+        }
+        .onDisappear {
+            isAnimationActive = false
+        }
     }
     
     private func formatTime(_ timeInterval: TimeInterval) -> String {

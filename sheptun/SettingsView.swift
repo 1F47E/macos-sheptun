@@ -39,7 +39,6 @@ struct SettingsView: View {
                     }
 
                     Spacer()
-                    Spacer()
                     
                     if settings.selectedProvider == "openai" {
                         Section() {
@@ -53,8 +52,10 @@ struct SettingsView: View {
                                     settings.saveSettings()
                                 }
                         }
+
+                    Spacer()
                         
-                        Section(header: Text("")) {
+                        Section() {
                             Picker("Model", selection: $settings.transcriptionModel) {
                                 Text("GPT-4o Mini").tag("gpt-4o-mini-transcribe")
                                 Text("GPT-4o").tag("gpt-4o-transcribe")
@@ -79,7 +80,7 @@ struct SettingsView: View {
                     }
                     
                     if settings.selectedProvider == "groq" {
-                        Section(header: Text("Groq API Key")) {
+                        Section() {
                             SecureField("Groq API Key", text: $groqKeyInput)
                                 .textFieldStyle(RoundedBorderTextFieldStyle())
                                 .onAppear {
@@ -90,6 +91,8 @@ struct SettingsView: View {
                                     settings.saveSettings()
                                 }
                         }
+
+                    Spacer()
                         
                         Section() {
                             Picker("Model", selection: $settings.transcriptionModel) {
@@ -402,6 +405,3 @@ struct SettingsView: View {
     }
 }
 
-// The AudioLevelMonitor class has been moved to its own file
-// ... existing code ... 
-// ... existing code ... 
