@@ -24,8 +24,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsManager.shared
     private let logger = Logger.shared
     private var settingsWindow: NSWindow?
-    private var debugAnimationWindow: NSWindow?
-    private var transcribeDebugWindow: NSWindow?
     private let hotkeyManager = HotkeyManager.shared
     private var hasMicrophones: Bool = false
     
@@ -104,14 +102,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Update microphone status on menu open
         menu.delegate = self
         
-        // Transcribe Debug
-        menu.addItem(NSMenuItem(title: "Transcribe Debug", action: #selector(openTranscribeDebugWindow), keyEquivalent: "d"))
-        
         // Logs
         menu.addItem(NSMenuItem(title: "Logs", action: #selector(showLogs), keyEquivalent: "l"))
-        
-        // Animation Debug
-        menu.addItem(NSMenuItem(title: "Animation Debug", action: #selector(openAnimationDebugWindow), keyEquivalent: "a"))
         
         // Settings
         menu.addItem(NSMenuItem.separator())
@@ -122,7 +114,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         
         statusItem.menu = menu
-        logger.log("Status bar menu configured with Settings, Animation Debug, Transcribe Debug, and Quit options")
+        logger.log("Status bar menu configured with Settings, Logs, and Quit options")
     }
     
     // Update the status bar icon based on microphone availability
@@ -195,58 +187,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
-    }
-    
-    @objc func openAnimationDebugWindow() {
-        logger.log("Opening Animation Debug Window", level: .info)
-        
-        if let existingWindow = debugAnimationWindow, !existingWindow.isVisible {
-            existingWindow.makeKeyAndOrderFront(nil)
-            return
-        }
-        
-        if debugAnimationWindow == nil {
-            let contentView = AnimationDebugView()
-            debugAnimationWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                backing: .buffered,
-                defer: false
-            )
-            debugAnimationWindow?.center()
-            debugAnimationWindow?.title = "Animation Debug"
-            debugAnimationWindow?.isReleasedWhenClosed = false
-            debugAnimationWindow?.contentView = NSHostingView(rootView: contentView)
-        }
-        
-        debugAnimationWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-    
-    @objc func openTranscribeDebugWindow() {
-        logger.log("Opening Transcribe Debug Window", level: .info)
-        
-        if let existingWindow = transcribeDebugWindow, !existingWindow.isVisible {
-            existingWindow.makeKeyAndOrderFront(nil)
-            return
-        }
-        
-        if transcribeDebugWindow == nil {
-            let contentView = TranscribeDebugView()
-            transcribeDebugWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                backing: .buffered,
-                defer: false
-            )
-            transcribeDebugWindow?.center()
-            transcribeDebugWindow?.title = "Transcribe Debug"
-            transcribeDebugWindow?.isReleasedWhenClosed = false
-            transcribeDebugWindow?.contentView = NSHostingView(rootView: contentView)
-        }
-        
-        transcribeDebugWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
     
     // Add a method to check and request microphone permission

@@ -192,7 +192,7 @@ public struct ParticleWaveEffect: View {
     /// Create particles for loading mode
     private mutating func createLoadingParticles(in size: CGSize) {
         // In loading mode, create particles arranged in a circle
-        let particleCount = 12
+        let particleCount = 3
         let centerX = size.width / 2
         let centerY = size.height / 2
         let radius = min(size.width, size.height) * 0.3
@@ -203,8 +203,8 @@ public struct ParticleWaveEffect: View {
             let y = centerY + sin(angle) * radius
             
             // Create a particle with properties suitable for loading animation
-            let particleSize = 6.0
-            let particleSpeed = 1.0
+            let particleSize = 3.0
+            let particleSpeed = 0.5
             
             // Alternate colors for visual interest
             let colorMix = Double(i) / Double(particleCount)
@@ -317,8 +317,9 @@ public struct ParticleWaveEffect: View {
         }
         
         // If we have too many particles, gradually fade out excess ones
-        if particles.count > 12 {
-            for i in 12..<particles.count {
+        let particleCount = 5
+        if particles.count > particleCount {
+            for i in particleCount..<particles.count {
                 var particle = particles[i]
                 particle.opacity = max(0, particle.opacity - 0.1)
                 particles[i] = particle
