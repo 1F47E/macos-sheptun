@@ -1088,44 +1088,197 @@ struct ParticleWaveEffect_Previews: PreviewProvider {
 
 // MARK: - Loading Indicator
 struct LoadingIndicator: View {
+    // MARK: - Properties
     @State private var rotation: Double = 0
-    @State private var scale: CGFloat = 1.0
+    @State private var particles: [CircleParticle] = []
+    @State private var animationPhase: Double = 0
+    
     var baseColor: Color = .blue
     var accentColor: Color = .purple
+    var particleCount: Int = 12
+    var maxParticleSize: CGFloat = 8
+    var circleRadius: CGFloat = 20
     
+    // Data structure for circle particles
+    private struct CircleParticle: Identifiable {
+        let id = UUID()
+        var position: CGPoint
+        var size: CGFloat
+        var color: Color
+        var opacity: Double
+        var phase: Double
+    }
+    
+    // MARK: - Body
     var body: some View {
-        ZStack {
-            // Background circle
-            Circle()
-                .stroke(baseColor.opacity(0.3), lineWidth: 3)
-                .frame(width: 40, height: 40)
-            
-            // Animated arc
-            Circle()
-                .trim(from: 0, to: 0.7)
-                .stroke(
-                    AngularGradient(
-                        gradient: Gradient(colors: [baseColor, accentColor]),
-                        center: .center
-                    ),
-                    style: StrokeStyle(lineWidth: 3, lineCap: .round)
+        TimelineView(.animation) { timeline in
+            Canvas { context, size in
+                // Draw background circle
+                let centerX = size.width / 2
+                let centerY = size.height / 2
+                
+                // Draw subtle background circle
+                context.opacity = 0.2
+                context.stroke(
+                    Path(ellipseIn: CGRect(
+                        x: centerX - circleRadius - 2,
+                        y: centerY - circleRadius - 2,
+                        width: (circleRadius + 2) * 2,
+                        height: (circleRadius + 2) * 2
+                    )),
+                    with: .color(baseColor),
+                    lineWidth: 1
                 )
-                .frame(width: 40, height: 40)
-                .rotationEffect(Angle(degrees: rotation))
-                .scaleEffect(scale)
-                .onAppear {
-                    withAnimation(Animation.linear(duration: 1).repeatForever(autoreverses: false)) {
-                        rotation = 360
-                    }
-                    withAnimation(Animation.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                        scale = 0.9
+                
+                // Draw all particles
+                for particle in particles {
+                    let path = Path(ellipseIn: CGRect(
+                        x: particle.position.x - particle.size/2,
+                        y: particle.position.y - particle.size/2,
+                        width: particle.size,
+                        height: particle.size
+                    ))
+                    
+                    var particleContext = context
+                    particleContext.opacity = particle.opacity
+                    particleContext.fill(path, with: .color(particle.color))
+                    
+                    // Add subtle glow effect
+                    if particle.size > maxParticleSize * 0.7 {
+                        var glowContext = context
+                        glowContext.opacity = particle.opacity * 0.5
+                        glowContext.blendMode = .screen
+                        glowContext.fill(
+                            path.strokedPath(StrokeStyle(lineWidth: 1)),
+                            with: .color(particle.color)
+                        )
                     }
                 }
-            
-            // Center dot
-            Circle()
-                .fill(accentColor)
-                .frame(width: 8, height: 8)
+            }
+            .frame(width: circleRadius * 2 + 20, height: circleRadius * 2 + 20)
+            .onChange(of: timeline.date) { _, _ in
+                updateParticles()
+            }
+            .onAppear {
+                initializeParticles()
+            }
         }
+    }
+    
+    // MARK: - Methods
+    
+    /// Initialize particles around the circle
+    private mutating func initializeParticles() {
+        particles = []
+        
+        // Create particles distributed evenly around a circle
+        for i in 0..<particleCount {
+            let angle = (Double(i) / Double(particleCount)) * 2 * .pi
+            let x = cos(angle) * Double(circleRadius) + 20 + circleRadius
+            let y = sin(angle) * Double(circleRadius) + 20 + circleRadius
+            
+            // Vary particle size slightly
+            let size = CGFloat.random(in: maxParticleSize * 0.5...maxParticleSize)
+            
+            // Create color based on position in the circle
+            let colorMix = Double(i) / Double(particleCount)
+            let particleColor = getParticleColor(colorMix: colorMix)
+            
+            particles.append(CircleParticle(
+                position: CGPoint(x: x, y: y),
+                size: size,
+                color: particleColor,
+                opacity: Double.random(in: 0.6...0.9),
+                phase: Double(i) / Double(particleCount) * 2 * .pi
+            ))
+        }
+    }
+    
+    /// Update particle properties for animation
+    private mutating func updateParticles() {
+        // Increment global animation phase
+        animationPhase += 0.03
+        rotation += 0.01
+        
+        // Update each particle
+        for i in 0..<particles.count {
+            var particle = particles[i]
+            
+            // Calculate angle based on original position plus rotation
+            let baseAngle = (Double(i) / Double(particleCount)) * 2 * .pi
+            let angle = baseAngle + rotation
+            
+            // Calculate new position
+            let centerX = 20 + circleRadius
+            let centerY = 20 + circleRadius
+            let x = cos(angle) * Double(circleRadius) + centerX
+            let y = sin(angle) * Double(circleRadius) + centerY
+            
+            // Update position
+            particle.position = CGPoint(x: x, y: y)
+            
+            // Pulse size based on phase
+            let pulseFactor = 0.7 + abs(sin(particle.phase + animationPhase)) * 0.5
+            particle.size = maxParticleSize * CGFloat(pulseFactor)
+            
+            // Pulse opacity slightly
+            particle.opacity = 0.6 + abs(sin(particle.phase + animationPhase * 0.8)) * 0.4
+            
+            // Gradually shift colors
+            let colorMix = (Double(i) / Double(particleCount) + animationPhase * 0.05).truncatingRemainder(dividingBy: 1.0)
+            particle.color = getParticleColor(colorMix: colorMix)
+            
+            // Update particle in array
+            particles[i] = particle
+        }
+    }
+    
+    /// Get a color for a particle based on position in circle
+    private func getParticleColor(colorMix: Double) -> Color {
+        // Use a similar color scheme to ParticleWaveEffect
+        if colorMix < 0.5 {
+            // Map 0...0.5 to 0...1 for interpolation from base to accent
+            let normalizedMix = colorMix * 2
+            return Color.interpolateRGB(
+                from: baseColor,
+                to: accentColor,
+                amount: normalizedMix
+            )
+        } else {
+            // Map 0.5...1 to 1...0 for interpolation from accent back to base
+            let normalizedMix = (colorMix - 0.5) * 2
+            return Color.interpolateRGB(
+                from: accentColor,
+                to: baseColor,
+                amount: normalizedMix
+            )
+        }
+    }
+}
+
+// Extension for color interpolation 
+extension Color {
+    static func interpolateRGB(from color1: Color, to color2: Color, amount: Double) -> Color {
+        let amount = max(0, min(1, amount)) // clamp to 0...1
+        
+        // Convert colors to NSColor for component access
+        let nsColor1 = NSColor(color1)
+        let nsColor2 = NSColor(color2)
+        
+        // Extract RGB components
+        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
+        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+        
+        nsColor1.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        nsColor2.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+        
+        // Interpolate
+        let r = r1 + (r2 - r1) * CGFloat(amount)
+        let g = g1 + (g2 - g1) * CGFloat(amount)
+        let b = b1 + (b2 - b1) * CGFloat(amount)
+        let a = a1 + (a2 - a1) * CGFloat(amount)
+        
+        // Create new color
+        return Color(NSColor(red: r, green: g, blue: b, alpha: a))
     }
 } 

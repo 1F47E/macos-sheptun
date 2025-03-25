@@ -411,7 +411,7 @@ struct RecordingSessionView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 5)
                     }
-                    .frame(width: 160, height: 80)
+                    .frame(width: 160, height: 280)
                 }
             }
         }
