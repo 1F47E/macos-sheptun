@@ -1087,27 +1087,29 @@ struct ParticleWaveEffect_Previews: PreviewProvider {
 }
 
 // MARK: - Loading Indicator
+
+// Data structure for circle particles
+private struct CircleParticle: Identifiable {
+    let id = UUID()
+    var position: CGPoint
+    var size: CGFloat
+    var color: Color
+    var opacity: Double
+    var phase: Double
+}
+
 struct LoadingIndicator: View {
     // MARK: - Properties
     @State private var rotation: Double = 0
     @State private var particles: [CircleParticle] = []
     @State private var animationPhase: Double = 0
+    @StateObject private var particleState = ParticleStateManager()
     
     var baseColor: Color = .blue
     var accentColor: Color = .purple
     var particleCount: Int = 12
     var maxParticleSize: CGFloat = 8
     var circleRadius: CGFloat = 20
-    
-    // Data structure for circle particles
-    private struct CircleParticle: Identifiable {
-        let id = UUID()
-        var position: CGPoint
-        var size: CGFloat
-        var color: Color
-        var opacity: Double
-        var phase: Double
-    }
     
     // MARK: - Body
     var body: some View {
@@ -1157,18 +1159,133 @@ struct LoadingIndicator: View {
             }
             .frame(width: circleRadius * 2 + 20, height: circleRadius * 2 + 20)
             .onChange(of: timeline.date) { _, _ in
-                updateParticles()
+                // Call updateParticles on state
+                particleState.updateParticles(
+                    particles: &particles, 
+                    animationPhase: &animationPhase, 
+                    rotation: &rotation, 
+                    particleCount: particleCount, 
+                    circleRadius: circleRadius, 
+                    maxParticleSize: maxParticleSize, 
+                    baseColor: baseColor, 
+                    accentColor: accentColor
+                )
             }
             .onAppear {
-                initializeParticles()
+                // Initialize particles on appear
+                particleState.initializeParticles(
+                    particles: &particles,
+                    particleCount: particleCount,
+                    circleRadius: circleRadius,
+                    maxParticleSize: maxParticleSize,
+                    baseColor: baseColor,
+                    accentColor: accentColor
+                )
             }
         }
     }
+}
+
+struct CircleParticleRing: View {
+    // MARK: - Properties
+    @State private var rotation: Double = 0
+    @State private var particles: [CircleParticle] = []
+    @State private var animationPhase: Double = 0
+    @StateObject private var particleState = ParticleStateManager()
     
-    // MARK: - Methods
+    var baseColor: Color = .blue
+    var accentColor: Color = .purple
+    var particleCount: Int = 12
+    var maxParticleSize: CGFloat = 8
+    var circleRadius: CGFloat = 20
     
+    // MARK: - Body
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            Canvas { context, size in
+                // Draw background circle
+                let centerX = size.width / 2
+                let centerY = size.height / 2
+                
+                // Draw subtle background circle
+                context.opacity = 0.2
+                context.stroke(
+                    Path(ellipseIn: CGRect(
+                        x: centerX - circleRadius - 2,
+                        y: centerY - circleRadius - 2,
+                        width: (circleRadius + 2) * 2,
+                        height: (circleRadius + 2) * 2
+                    )),
+                    with: .color(baseColor),
+                    lineWidth: 1
+                )
+                
+                // Draw all particles
+                for particle in particles {
+                    let path = Path(ellipseIn: CGRect(
+                        x: particle.position.x - particle.size/2,
+                        y: particle.position.y - particle.size/2,
+                        width: particle.size,
+                        height: particle.size
+                    ))
+                    
+                    var particleContext = context
+                    particleContext.opacity = particle.opacity
+                    particleContext.fill(path, with: .color(particle.color))
+                    
+                    // Add subtle glow effect
+                    if particle.size > maxParticleSize * 0.7 {
+                        var glowContext = context
+                        glowContext.opacity = particle.opacity * 0.5
+                        glowContext.blendMode = .screen
+                        glowContext.fill(
+                            path.strokedPath(StrokeStyle(lineWidth: 1)),
+                            with: .color(particle.color)
+                        )
+                    }
+                }
+            }
+            .frame(width: circleRadius * 2 + 20, height: circleRadius * 2 + 20)
+            .onChange(of: timeline.date) { _, _ in
+                // Call updateParticles on state
+                particleState.updateParticles(
+                    particles: &particles, 
+                    animationPhase: &animationPhase, 
+                    rotation: &rotation, 
+                    particleCount: particleCount, 
+                    circleRadius: circleRadius, 
+                    maxParticleSize: maxParticleSize, 
+                    baseColor: baseColor, 
+                    accentColor: accentColor
+                )
+            }
+            .onAppear {
+                // Initialize particles on appear
+                particleState.initializeParticles(
+                    particles: &particles,
+                    particleCount: particleCount,
+                    circleRadius: circleRadius,
+                    maxParticleSize: maxParticleSize,
+                    baseColor: baseColor,
+                    accentColor: accentColor
+                )
+            }
+        }
+    }
+}
+
+// Before the CircleParticleRing struct
+// State manager to handle mutating operations on particles
+class ParticleStateManager: ObservableObject {
     /// Initialize particles around the circle
-    private mutating func initializeParticles() {
+    fileprivate func initializeParticles(
+        particles: inout [CircleParticle],
+        particleCount: Int,
+        circleRadius: CGFloat,
+        maxParticleSize: CGFloat,
+        baseColor: Color,
+        accentColor: Color
+    ) {
         particles = []
         
         // Create particles distributed evenly around a circle
@@ -1182,7 +1299,7 @@ struct LoadingIndicator: View {
             
             // Create color based on position in the circle
             let colorMix = Double(i) / Double(particleCount)
-            let particleColor = getParticleColor(colorMix: colorMix)
+            let particleColor = getParticleColor(colorMix: colorMix, baseColor: baseColor, accentColor: accentColor)
             
             particles.append(CircleParticle(
                 position: CGPoint(x: x, y: y),
@@ -1195,7 +1312,16 @@ struct LoadingIndicator: View {
     }
     
     /// Update particle properties for animation
-    private mutating func updateParticles() {
+    fileprivate func updateParticles(
+        particles: inout [CircleParticle],
+        animationPhase: inout Double,
+        rotation: inout Double,
+        particleCount: Int,
+        circleRadius: CGFloat,
+        maxParticleSize: CGFloat,
+        baseColor: Color,
+        accentColor: Color
+    ) {
         // Increment global animation phase
         animationPhase += 0.03
         rotation += 0.01
@@ -1209,8 +1335,8 @@ struct LoadingIndicator: View {
             let angle = baseAngle + rotation
             
             // Calculate new position
-            let centerX = 20 + circleRadius
-            let centerY = 20 + circleRadius
+            let centerX = 20 + Double(circleRadius)
+            let centerY = 20 + Double(circleRadius)
             let x = cos(angle) * Double(circleRadius) + centerX
             let y = sin(angle) * Double(circleRadius) + centerY
             
@@ -1226,7 +1352,7 @@ struct LoadingIndicator: View {
             
             // Gradually shift colors
             let colorMix = (Double(i) / Double(particleCount) + animationPhase * 0.05).truncatingRemainder(dividingBy: 1.0)
-            particle.color = getParticleColor(colorMix: colorMix)
+            particle.color = getParticleColor(colorMix: colorMix, baseColor: baseColor, accentColor: accentColor)
             
             // Update particle in array
             particles[i] = particle
@@ -1234,7 +1360,7 @@ struct LoadingIndicator: View {
     }
     
     /// Get a color for a particle based on position in circle
-    private func getParticleColor(colorMix: Double) -> Color {
+    private func getParticleColor(colorMix: Double, baseColor: Color, accentColor: Color) -> Color {
         // Use a similar color scheme to ParticleWaveEffect
         if colorMix < 0.5 {
             // Map 0...0.5 to 0...1 for interpolation from base to accent

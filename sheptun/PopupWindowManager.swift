@@ -36,6 +36,7 @@ class PopupWindowManager: ObservableObject {
         case transcribing
         case completed(String)
         case error(String)
+        case noMicrophone
     }
     
     @Published var currentState: PopupState = .recording
@@ -50,7 +51,16 @@ class PopupWindowManager: ObservableObject {
     func togglePopupWindow() {
         let audioRecorder = AudioRecorder.shared
         
-        // First check if we have microphone permission
+        // First check if we have any microphones available
+        let availableMics = settingsManager.getAvailableMicrophones()
+        if availableMics.isEmpty {
+            // No microphones found - show error popup
+            logger.log("No microphones found, showing error popup", level: .warning)
+            showMicrophoneErrorPopup()
+            return
+        }
+        
+        // Check if we have microphone permission
         if !audioRecorder.checkMicrophonePermission() {
             logger.log("Microphone permission not granted, requesting access", level: .warning)
             
@@ -90,6 +100,12 @@ class PopupWindowManager: ObservableObject {
             currentState = .recording
             animationState.exitLoadingMode()
             isWindowRound = false
+            
+            // Ensure animation is properly reset by recreating the hosting view with a fresh RecordingSessionView
+            window.contentView = NSHostingView(rootView: RecordingSessionView())
+            
+            // Start audio recording fresh
+            audioRecorder.startRecording()
             return
         }
         
@@ -306,6 +322,10 @@ class PopupWindowManager: ObservableObject {
             // Stop audio level simulation
             stopAudioLevelSimulation()
             
+            // Reset animation state
+            animationState.exitLoadingMode()
+            isWindowRound = false
+            
             // Close the window
             window.close()
             popupWindow = nil
@@ -347,6 +367,48 @@ class PopupWindowManager: ObservableObject {
     private func stopAudioLevelSimulation() {
         audioLevelSimulationTimer?.invalidate()
         audioLevelSimulationTimer = nil
+    }
+    
+    // Add method to show error popup for no microphone
+    private func showMicrophoneErrorPopup() {
+        // If window already exists, just update its state
+        if let window = popupWindow {
+            logger.log("Updating existing popup window to show microphone error", level: .debug)
+            currentState = .noMicrophone
+            window.orderFront(nil)
+            return
+        }
+        
+        logger.log("Creating new window to show microphone error", level: .info)
+        
+        // Create a window without standard decorations and non-activating
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        
+        // Configure window appearance
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.hasShadow = true
+        window.level = .floating
+        window.isReleasedWhenClosed = false
+        
+        // Set up the window with the error view
+        currentState = .noMicrophone
+        let hostingView = NSHostingView(rootView: RecordingSessionView())
+        window.contentView = hostingView
+        
+        // Position window at top center of the screen
+        positionWindowAtTopCenter(window)
+        
+        // Show window without activating app or making window key
+        window.orderFront(nil)
+        
+        // Keep a reference to the window
+        self.popupWindow = window
     }
 }
 
@@ -412,7 +474,79 @@ struct RecordingSessionView: View {
                             .padding(.horizontal, 5)
                     }
                     .frame(width: 160, height: 280)
+                
+                case .noMicrophone:
+                    // No microphone UI
+                    VStack(spacing: 12) {
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                windowManager.closePopupWindow()
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .padding(4)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .contentShape(Rectangle())
+                        }
+                        .padding(.top, 4)
+                        .padding(.trailing, 4)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "mic.slash.fill")
+                            .resizable()
+                            .frame(width: 32, height: 32)
+                            .foregroundColor(.red)
+                        
+                        Text("No Microphones Found")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white)
+                        
+                        Button(action: {
+                            windowManager.closePopupWindow()
+                            NSApp.sendAction(#selector(AppDelegate.openSettings), to: nil, from: nil)
+                        }) {
+                            Text("Open Settings")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.white)
+                                .cornerRadius(12)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        
+                        Spacer()
+                    }
+                    .frame(width: 240, height: 120)
                 }
+            }
+            
+            // Close button - positioned in the top-right corner
+            // Only show when not in transcribing state
+            if case .transcribing = windowManager.currentState {
+                // Don't show close button during transcription
+            } else {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            windowManager.closePopupWindow()
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white.opacity(0.7))
+                                .padding(4)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .contentShape(Rectangle())
+                    }
+                    Spacer()
+                }
+                .padding(4)
             }
         }
         .frame(width: windowManager.isWindowRound ? 80 : 160, 
@@ -450,10 +584,12 @@ extension PopupWindowManager.PopupState {
     
     var windowHeight: CGFloat {
         switch self {
-        case .error(_):
-            return 80
+        case .error:
+            return 100
         case .recording, .transcribing, .completed:
             return 60
+        case .noMicrophone:
+            return 120
         }
     }
 }

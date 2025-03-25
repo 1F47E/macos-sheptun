@@ -27,6 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var debugAnimationWindow: NSWindow?
     private var transcribeDebugWindow: NSWindow?
     private let hotkeyManager = HotkeyManager.shared
+    private var hasMicrophones: Bool = false
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.log("Application did finish launching", level: .info)
@@ -36,9 +37,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
+        // Check for available microphones
+        checkForAvailableMicrophones()
+        
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Sheptun")
-            logger.log("Status bar button created with waveform icon")
+            let iconName = hasMicrophones ? "waveform" : "waveform"
+            let iconColor = hasMicrophones ? NSColor.controlAccentColor : NSColor.red
+            
+            let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Sheptun")?.tinted(with: iconColor)
+            button.image = image
+            logger.log("Status bar button created with \(hasMicrophones ? "normal" : "red") waveform icon")
         } else {
             logger.log("Failed to create status bar button", level: .error)
         }
@@ -57,6 +65,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Check microphone permission on app launch
         checkMicrophonePermission()
+    }
+    
+    // Check if any microphones are available
+    private func checkForAvailableMicrophones() {
+        let availableMics = settings.getAvailableMicrophones()
+        hasMicrophones = !availableMics.isEmpty
+        
+        if !hasMicrophones {
+            logger.log("No microphones found on system", level: .warning)
+        } else {
+            logger.log("Found \(availableMics.count) microphone(s) on system", level: .info)
+        }
     }
     
     private func registerHotkey() {
@@ -81,6 +101,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         logger.log("Setting up status bar menu")
         let menu = NSMenu()
         
+        // Update microphone status on menu open
+        menu.delegate = self
+        
         // Transcribe Debug
         menu.addItem(NSMenuItem(title: "Transcribe Debug", action: #selector(openTranscribeDebugWindow), keyEquivalent: "d"))
         
@@ -100,6 +123,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         statusItem.menu = menu
         logger.log("Status bar menu configured with Settings, Animation Debug, Transcribe Debug, and Quit options")
+    }
+    
+    // Update the status bar icon based on microphone availability
+    func updateStatusBarIcon() {
+        // Check for available microphones
+        checkForAvailableMicrophones()
+        
+        if let button = statusItem.button {
+            let iconName = "waveform"
+            let iconColor = hasMicrophones ? NSColor.controlAccentColor : NSColor.red
+            
+            let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Sheptun")?.tinted(with: iconColor)
+            button.image = image
+            logger.log("Status bar icon updated: color set to \(hasMicrophones ? "normal" : "red")")
+        }
     }
     
     @objc func openSettings() {
@@ -261,5 +299,28 @@ extension NSColor {
         convertedColor.getRed(&r, green: &g, blue: &b, alpha: &a)
         
         return (r, g, b, a)
+    }
+}
+
+// Add extension for NSImage tinting
+extension NSImage {
+    func tinted(with color: NSColor) -> NSImage {
+        let image = self.copy() as! NSImage
+        image.lockFocus()
+        
+        color.set()
+        let imageRect = NSRect(origin: .zero, size: image.size)
+        imageRect.fill(using: .sourceAtop)
+        
+        image.unlockFocus()
+        return image
+    }
+}
+
+// Add NSMenuDelegate to update icon when menu is opened
+extension AppDelegate: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        // Update microphone status when menu opens
+        updateStatusBarIcon()
     }
 }
