@@ -423,29 +423,33 @@ struct RecordingSessionView: View {
             Group {
                 switch windowManager.currentState {
                 case .recording:
-                    // Recording UI - Minimalistic - Now using the shared animation state
-                    ParticleWaveEffect(intensity: audioRecorder.audioLevel)
-                        .height(30)
-                        .baseColor(.blue)
-                        .accentColor(.purple)
-                        .loadingMode(animationState.isInLoadingMode)
-                        .animationSpeed(1.5)
-                        .particleCount(25)
-                        .padding(.horizontal, 5)
+                    VStack(spacing: 2) {
+                        // Current implementation uses ParticleWaveEffect for visualization
+                        ParticleWaveEffect(intensity: audioRecorder.audioLevel)
+                            .loadingMode(false)
+                            .frame(height: 40)
+                            .padding(.horizontal, 5)
+                        
+                        // Show recording time
+                        if audioRecorder.isRecording {
+                            Text(formatTime(audioRecorder.recordingTime))
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.8))
+                                .padding(.top, 4)
+                        }
+                    }
                 
                 case .transcribing:
                     // Loading indicator UI
                     if windowManager.isWindowRound {
-                        LoadingIndicator(baseColor: .blue, accentColor: .purple)
+                        ParticleWaveEffect(intensity: 0.5)
+                            .loadingMode(true)
+                            .frame(width: 60, height: 60)
                     } else {
                         // Fallback for transition states
                         ParticleWaveEffect(intensity: 0.5)
-                            .height(30)
-                            .baseColor(.blue)
-                            .accentColor(.purple)
                             .loadingMode(true)
-                            .animationSpeed(1.0)
-                            .particleCount(3)
+                            .frame(height: 30)
                             .padding(.horizontal, 5)
                     }
                 

@@ -90,9 +90,7 @@ struct TranscribeDebugView: View {
             }
             
             ParticleWaveEffect(intensity: viewModel.audioLevel)
-                .baseColor(.blue)
-                .accentColor(.indigo)
-                .height(60)
+                .frame(height: 60)
                 .cornerRadius(8)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)

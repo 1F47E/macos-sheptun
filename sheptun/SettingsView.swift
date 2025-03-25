@@ -128,6 +128,7 @@ struct SettingsView: View {
                                     .foregroundColor(.green)
                                 Text("API Key is valid")
                                     .foregroundColor(.green)
+                                Spacer()
                             }
                         case .error(let message):
                             HStack {
@@ -135,6 +136,7 @@ struct SettingsView: View {
                                     .foregroundColor(.red)
                                 Text("Invalid API Key: \(message)")
                                     .foregroundColor(.red)
+                                Spacer()
                             }
                         case .networkError(let message):
                             HStack {
@@ -142,6 +144,7 @@ struct SettingsView: View {
                                     .foregroundColor(.orange)
                                 Text("Network error: \(message)")
                                     .foregroundColor(.orange)
+                                Spacer()
                             }
                         }
                     }
