@@ -104,172 +104,76 @@ class OpenAIManager: AIProvider {
         // Try environment variable if empty string is provided
         let key = apiKey.isEmpty ? getAPIKeyFromEnvironment() ?? apiKey : apiKey
         
+        let startTime = Date()
+        logger.log("Starting audio transcription with curl using model: \(model)", level: .info)
+        
+        let tempDir = FileManager.default.temporaryDirectory.path
+        let outputPath = "\(tempDir)/transcription_response.txt"
+        
+        // Build the curl command
+        var arguments: [String] = []
+        arguments.append("-X")
+        arguments.append("POST")
+        arguments.append("https://api.openai.com/v1/audio/transcriptions")
+        arguments.append("-H")
+        arguments.append("Authorization: Bearer \(key)")
+        arguments.append("-H")
+        arguments.append("Content-Type: multipart/form-data")
+        arguments.append("-F")
+        arguments.append("model=\(model)")
+        arguments.append("-F")
+        arguments.append("temperature=\(temperature)")
+        arguments.append("-F")
+        arguments.append("response_format=text")
+        
+        if !language.isEmpty {
+            arguments.append("-F")
+            arguments.append("language=\(language)")
+        }
+        
+        arguments.append("-F")
+        arguments.append("file=@\(audioFileURL.path)")
+        arguments.append("-o")
+        arguments.append(outputPath)
+        
+        // Use Process to run curl
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        process.arguments = arguments
+        
+        let pipe = Pipe()
+        process.standardError = pipe
+        
         do {
-            // Set up the request
-            let url = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            
-            // Generate a unique boundary string for multipart/form-data
-            let boundary = "Boundary-\(UUID().uuidString)"
-            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-            
-            // Create multipart/form-data body
-            var data = Data()
-            
-            // Add model parameter
-            data.append("--\(boundary)\r\n".data(using: .utf8)!)
-            data.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-            data.append("\(model)\r\n".data(using: .utf8)!)
-            
-            // Add language parameter if specified
-            if !language.isEmpty {
-                data.append("--\(boundary)\r\n".data(using: .utf8)!)
-                data.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
-                data.append("\(language)\r\n".data(using: .utf8)!)
-            }
-            
-            // Add temperature parameter
-            data.append("--\(boundary)\r\n".data(using: .utf8)!)
-            data.append("Content-Disposition: form-data; name=\"temperature\"\r\n\r\n".data(using: .utf8)!)
-            data.append("\(temperature)\r\n".data(using: .utf8)!)
-            
-            // Add response_format parameter
-            data.append("--\(boundary)\r\n".data(using: .utf8)!)
-            data.append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".data(using: .utf8)!)
-            data.append("text\r\n".data(using: .utf8)!)
-            
-            // Add file data
-            data.append("--\(boundary)\r\n".data(using: .utf8)!)
-            data.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(audioFileURL.lastPathComponent)\"\r\n".data(using: .utf8)!)
-            
-            // Set the correct Content-Type based on file extension
-            let fileExtension = audioFileURL.pathExtension.lowercased()
-            let contentType: String
-            
-            switch fileExtension {
-            case "m4a":
-                contentType = "audio/mp4"
-            case "mp3", "mpeg", "mpga":
-                contentType = "audio/mpeg"
-            case "wav":
-                contentType = "audio/wav"
-            case "mp4":
-                contentType = "audio/mp4"
-            case "ogg", "oga":
-                contentType = "audio/ogg"
-            case "flac":
-                contentType = "audio/flac"
-            case "webm":
-                contentType = "audio/webm"
-            default:
-                contentType = "audio/mpeg" // Default fallback
-            }
-            
-            data.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
-            
-            // Read file data directly from the file
-            let fileData = try Data(contentsOf: audioFileURL)
-            
-            // Log file header for debugging (first 32 bytes as hex)
-            let headerSize = min(fileData.count, 32)
-            if headerSize > 0 {
-                let fileHeaderHex = fileData.prefix(headerSize).map { String(format: "%02x", $0) }.joined(separator: " ")
-                logger.log("File header (first \(headerSize) bytes): \(fileHeaderHex)", level: .debug)
-                
-                // Try to detect file format from magic numbers
-                let formatInfo = detectFileFormat(data: fileData)
-                logger.log("File format detection: \(formatInfo)", level: .debug)
-            }
-            
-            data.append(fileData)
-            data.append("\r\n".data(using: .utf8)!)
-            
-            // Close the boundary
-            data.append("--\(boundary)--\r\n".data(using: .utf8)!)
-            
-            // Log request details for debugging
-            logger.log("Sending API request to: \(url.absoluteString)", level: .debug)
-            logger.log("Request headers: \(request.allHTTPHeaderFields ?? [:])", level: .debug)
-            logger.log("Request parameters: model=\(model), language=\(language), temperature=\(temperature), response_format=text", level: .debug)
-            logger.log("Audio file size: \(fileData.count) bytes, contentType: \(contentType), format: \(fileExtension)", level: .debug)
-            
-            let startTime = Date()
-            
-            // Send the request
-            let (responseData, response) = try await URLSession.shared.upload(for: request, from: data)
+            try process.run()
+            process.waitUntilExit()
             
             // Calculate response time
             let responseTime = Date().timeIntervalSince(startTime)
             logger.log("OpenAI API responded in \(String(format: "%.2f", responseTime)) seconds", level: .info)
             
-            // Check for HTTP status code
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return .failure(NSError(domain: "OpenAIManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"]))
+            // Check exit status
+            let status = process.terminationStatus
+            if status != 0 {
+                let errorData = pipe.fileHandleForReading.readDataToEndOfFile()
+                let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+                logger.log("curl command failed with status \(status): \(errorMessage)", level: .error)
+                return .failure(APIError.requestFailed(statusCode: Int(status), message: errorMessage))
             }
             
-            // Log all responses for debugging
-            let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
-            logger.log("Response status code: \(httpResponse.statusCode)", level: .debug)
-            logger.log("Response body: \(responseString)", level: .debug)
-            
-            // Check if response is successful (2xx status code)
-            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
-                if let transcription = String(data: responseData, encoding: .utf8) {
-                    return .success(transcription)
-                } else {
-                    return .failure(NSError(domain: "OpenAIManager", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to decode transcription text"]))
-                }
+            // Read the response from the file
+            if let transcription = try? String(contentsOfFile: outputPath, encoding: .utf8) {
+                // Clean up the temp file
+                try? FileManager.default.removeItem(atPath: outputPath)
+                
+                // Return the transcription
+                return .success(transcription.trimmingCharacters(in: .whitespacesAndNewlines))
             } else {
-                // Handle server errors (500+) specifically
-                if httpResponse.statusCode >= 500 {
-                    logger.log("Server error \(httpResponse.statusCode) received: \(responseString)", level: .error)
-                    return .failure(APIError.serverError(statusCode: httpResponse.statusCode, responseBody: responseString))
-                }
-                
-                // Try to parse the error message from the API
-                if let responseString = String(data: responseData, encoding: .utf8) {
-                    logger.log("=== RESPONSE HEADERS ===", level: .debug)
-                    logger.log("Status Code: \(httpResponse.statusCode)", level: .debug)
-                    for (key, value) in httpResponse.allHeaderFields {
-                        logger.log("\(key): \(value)", level: .debug)
-                    }
-                    logger.log("=== END RESPONSE HEADERS ===", level: .debug)
-                    
-                    logger.log("=== RESPONSE BODY ===", level: .debug)
-                    logger.log(responseString, level: .debug) 
-                    logger.log("=== END RESPONSE BODY ===", level: .debug)
-                    
-                    // Try to extract error message from JSON
-                    if let data = responseString.data(using: .utf8) {
-                        do {
-                            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                               let error = json["error"] as? [String: Any] {
-                                
-                                let message = error["message"] as? String ?? "Unknown error"
-                                let errorType = error["type"] as? String ?? "unknown_error"
-                                let errorCode = error["code"] as? String ?? "no_code"
-                                
-                                logger.log("API error: type=\(errorType), code=\(errorCode), message=\(message)", level: .error)
-                                logger.log("File details: name=\(audioFileURL.lastPathComponent), size=\(fileData.count) bytes, contentType=\(contentType)", level: .error)
-                                
-                                return .failure(NSError(domain: "OpenAIManager", code: httpResponse.statusCode, userInfo: [
-                                    NSLocalizedDescriptionKey: "Request failed with status code \(httpResponse.statusCode): \(message)",
-                                    "errorType": errorType,
-                                    "errorCode": errorCode
-                                ]))
-                            }
-                        } catch {
-                            logger.log("Failed to parse error JSON: \(error.localizedDescription)", level: .error)
-                        }
-                    }
-                }
-                
-                return .failure(NSError(domain: "OpenAIManager", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Request failed with HTTP status code \(httpResponse.statusCode)"]))
+                logger.log("Failed to read transcription response from file", level: .error)
+                return .failure(APIError.invalidResponse)
             }
         } catch {
-            logger.log("Error during API request: \(error.localizedDescription)", level: .error)
+            logger.log("Error executing curl: \(error.localizedDescription)", level: .error)
             return .failure(error)
         }
     }
@@ -303,37 +207,37 @@ class OpenAIManager: AIProvider {
     }
 }
 
-// Extension to get PCM data from AVAudioPCMBuffer
-extension AVAudioPCMBuffer {
-    func data() -> Data {
-        let channelCount = Int(format.channelCount)
-        let frameCount = Int(frameLength)
-        let sampleCount = frameCount * channelCount
-        
-        switch format.commonFormat {
-        case .pcmFormatFloat32:
-            if let floatData = floatChannelData {
-                let stride = format.streamDescription.pointee.mBytesPerFrame
-                let byteCount = Int(frameLength) * Int(stride)
-                return Data(bytes: floatData[0], count: byteCount)
-            }
-        case .pcmFormatInt16:
-            if let int16Data = int16ChannelData {
-                let stride = 2 // Int16 = 2 bytes
-                let byteCount = sampleCount * stride
-                return Data(bytes: int16Data[0], count: byteCount)
-            }
-        case .pcmFormatInt32:
-            if let int32Data = int32ChannelData {
-                let stride = 4 // Int32 = 4 bytes
-                let byteCount = sampleCount * stride
-                return Data(bytes: int32Data[0], count: byteCount)
-            }
-        default:
-            break
-        }
-        
-        // Default - create empty data
-        return Data()
-    }
-} 
+// // Extension to get PCM data from AVAudioPCMBuffer
+// extension AVAudioPCMBuffer {
+//     func data() -> Data {
+//         let channelCount = Int(format.channelCount)
+//         let frameCount = Int(frameLength)
+//         let sampleCount = frameCount * channelCount
+//         
+//         switch format.commonFormat {
+//         case .pcmFormatFloat32:
+//             if let floatData = floatChannelData {
+//                 let stride = format.streamDescription.pointee.mBytesPerFrame
+//                 let byteCount = Int(frameLength) * Int(stride)
+//                 return Data(bytes: floatData[0], count: byteCount)
+//             }
+//         case .pcmFormatInt16:
+//             if let int16Data = int16ChannelData {
+//                 let stride = 2 // Int16 = 2 bytes
+//                 let byteCount = sampleCount * stride
+//                 return Data(bytes: int16Data[0], count: byteCount)
+//             }
+//         case .pcmFormatInt32:
+//             if let int32Data = int32ChannelData {
+//                 let stride = 4 // Int32 = 4 bytes
+//                 let byteCount = sampleCount * stride
+//                 return Data(bytes: int32Data[0], count: byteCount)
+//             }
+//         default:
+//             break
+//         }
+//         
+//         // Default - create empty data
+//         return Data()
+//     }
+// } 

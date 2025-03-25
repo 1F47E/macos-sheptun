@@ -26,7 +26,7 @@ struct SettingsView: View {
           
             Form {
                 Group {
-                    Section(header: Text("Provider")) {
+                    Section() {
                         Picker("Provider", selection: $settings.selectedProvider) {
                             Text("OpenAI").tag("openai")
                             Text("Groq").tag("groq")
@@ -37,9 +37,12 @@ struct SettingsView: View {
                             settings.saveSettings()
                         }
                     }
+
+                    Spacer()
+                    Spacer()
                     
                     if settings.selectedProvider == "openai" {
-                        Section(header: Text("OpenAI API Key")) {
+                        Section() {
                             SecureField("OpenAI API Key", text: $openAIKeyInput)
                                 .textFieldStyle(RoundedBorderTextFieldStyle())
                                 .onAppear {
@@ -88,7 +91,7 @@ struct SettingsView: View {
                                 }
                         }
                         
-                        Section(header: Text("")) {
+                        Section() {
                             Picker("Model", selection: $settings.transcriptionModel) {
                                 Text("Whisper Large v3").tag("whisper-large-v3")
                                 Text("Whisper Large v3 Turbo").tag("whisper-large-v3-turbo")
@@ -148,9 +151,12 @@ struct SettingsView: View {
                             }
                         }
                     }
+
+                    Spacer()
+                    Spacer()
                     
                     // Microphone section
-                    Section(header: Text("Microphone")) {
+                    Section() {
                         if availableMicrophones.isEmpty {
                             Text("No microphones found")
                                 .foregroundColor(.red)
