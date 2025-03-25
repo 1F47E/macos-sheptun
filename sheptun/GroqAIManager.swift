@@ -35,6 +35,8 @@ class GroqAIManager: AIProvider {
     }
     
     // Implementation of AIProvider protocol
+    // this shit is not working with swift network library
+    // maybe its api issue, not sure, got "wrong file type error"
     func transcribeAudio(
         audioFileURL: URL,
         apiKey: String,

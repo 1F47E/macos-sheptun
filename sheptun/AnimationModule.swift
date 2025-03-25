@@ -1084,4 +1084,48 @@ struct ParticleWaveEffect_Previews: PreviewProvider {
         }
         .padding()
     }
+}
+
+// MARK: - Loading Indicator
+struct LoadingIndicator: View {
+    @State private var rotation: Double = 0
+    @State private var scale: CGFloat = 1.0
+    var baseColor: Color = .blue
+    var accentColor: Color = .purple
+    
+    var body: some View {
+        ZStack {
+            // Background circle
+            Circle()
+                .stroke(baseColor.opacity(0.3), lineWidth: 3)
+                .frame(width: 40, height: 40)
+            
+            // Animated arc
+            Circle()
+                .trim(from: 0, to: 0.7)
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(colors: [baseColor, accentColor]),
+                        center: .center
+                    ),
+                    style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                )
+                .frame(width: 40, height: 40)
+                .rotationEffect(Angle(degrees: rotation))
+                .scaleEffect(scale)
+                .onAppear {
+                    withAnimation(Animation.linear(duration: 1).repeatForever(autoreverses: false)) {
+                        rotation = 360
+                    }
+                    withAnimation(Animation.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                        scale = 0.9
+                    }
+                }
+            
+            // Center dot
+            Circle()
+                .fill(accentColor)
+                .frame(width: 8, height: 8)
+        }
+    }
 } 

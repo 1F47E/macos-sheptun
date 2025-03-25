@@ -39,6 +39,7 @@ class PopupWindowManager: ObservableObject {
     }
     
     @Published var currentState: PopupState = .recording
+    @Published var isWindowRound: Bool = false
     
     private init() {}
     
@@ -88,6 +89,7 @@ class PopupWindowManager: ObservableObject {
             // Reset state to recording
             currentState = .recording
             animationState.exitLoadingMode()
+            isWindowRound = false
             return
         }
         
@@ -121,6 +123,7 @@ class PopupWindowManager: ObservableObject {
         // Start audio recording and reset state
         currentState = .recording
         animationState.exitLoadingMode() // Ensure we start in normal mode
+        isWindowRound = false
         audioRecorder.startRecording()
         
         // Keep a reference to the window
@@ -151,6 +154,26 @@ class PopupWindowManager: ObservableObject {
         
         // Stop audio level simulation
         stopAudioLevelSimulation()
+        
+        // Enter loading mode and make window round
+        animationState.enterLoadingMode()
+        isWindowRound = true
+        
+        // Make window square when in loading mode
+        if let window = popupWindow {
+            // Animate the window size change
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.3
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                
+                let newFrame = NSRect(x: window.frame.origin.x + (window.frame.width - 80) / 2,
+                                     y: window.frame.origin.y + (window.frame.height - 80) / 2,
+                                     width: 80,
+                                     height: 80)
+                
+                window.animator().setFrame(newFrame, display: true)
+            }
+        }
         
         // Get the API key from settings
         let apiKey = settingsManager.getCurrentAPIKey()
@@ -215,6 +238,9 @@ class PopupWindowManager: ObservableObject {
                 
                 // Handle the result on the main thread
                 await MainActor.run {
+                    // Exit loading mode
+                    self.animationState.exitLoadingMode()
+                    
                     switch result {
                     case .success(let transcription):
                         // Transcription successful
@@ -257,6 +283,9 @@ class PopupWindowManager: ObservableObject {
                 }
             } catch {
                 await MainActor.run {
+                    // Exit loading mode
+                    self.animationState.exitLoadingMode()
+                    
                     self.logger.log("Failed to process audio: \(error.localizedDescription)", level: .error)
                     self.currentState = .error("Failed to process audio: \(error.localizedDescription)")
                     
@@ -328,7 +357,7 @@ struct RecordingSessionView: View {
     @ObservedObject private var animationState = AnimationStateManager.shared
     
     var body: some View {
-        VStack(spacing: 10) {
+        ZStack {
             Group {
                 switch windowManager.currentState {
                 case .recording:
@@ -343,15 +372,20 @@ struct RecordingSessionView: View {
                         .padding(.horizontal, 5)
                 
                 case .transcribing:
-                    // Simpler loading UI
-                    ParticleWaveEffect(intensity: 0.5)
-                        .height(30)
-                        .baseColor(.blue)
-                        .accentColor(.purple)
-                        .loadingMode(true)
-                        .animationSpeed(1.0)
-                        .particleCount(3)
-                        .padding(.horizontal, 5)
+                    // Loading indicator UI
+                    if windowManager.isWindowRound {
+                        LoadingIndicator(baseColor: .blue, accentColor: .purple)
+                    } else {
+                        // Fallback for transition states
+                        ParticleWaveEffect(intensity: 0.5)
+                            .height(30)
+                            .baseColor(.blue)
+                            .accentColor(.purple)
+                            .loadingMode(true)
+                            .animationSpeed(1.0)
+                            .particleCount(3)
+                            .padding(.horizontal, 5)
+                    }
                 
                 case .completed(let text):
                     // Success UI
@@ -381,10 +415,18 @@ struct RecordingSessionView: View {
                 }
             }
         }
-        .frame(width: 160, height: windowManager.currentState.windowHeight)
+        .frame(width: windowManager.isWindowRound ? 80 : 160, 
+               height: windowManager.isWindowRound ? 80 : windowManager.currentState.windowHeight)
         .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.8))
+            Group {
+                if windowManager.isWindowRound {
+                    Circle()
+                        .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.8))
+                } else {
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.8))
+                }
+            }
         )
         .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
     }
