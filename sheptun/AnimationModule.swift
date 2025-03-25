@@ -3,6 +3,82 @@ import SwiftUI
 /// A responsive animation with two modes: voice recording and loading.
 /// Seamlessly transitions between the two modes.
 public struct ParticleWaveEffect: View {
+    // MARK: - Constants
+    
+    // Animation parameters
+    private let kMinIntensityForWave: Float = 0.2
+    private let kWaveHeightFactor: CGFloat = 0.4
+    private let kWaveSegments: Int = 20
+    private let kWaveOpacityBase: CGFloat = 0.2
+    private let kWaveOpacityFactor: CGFloat = 0.1
+    private let kWaveLineWidthBase: CGFloat = 2
+    private let kWaveLineWidthFactor: CGFloat = 3
+    
+    // Global animation speed
+    private let kAnimationPhaseIncrement: Double = 0.05
+    private let kTransitionProgressIncrement: Double = 0.05
+    private let kLoadingPhaseIncrement: Double = 0.01
+    
+    // Voice particles
+    private let kVoiceParticleCount: Int = 30
+    private let kVoiceParticleSpreadBase: CGFloat = 10
+    private let kVoiceParticleSpreadFactor: CGFloat = 10
+    private let kVoiceParticleSizeMin: CGFloat = 3
+    private let kVoiceParticleSizeMax: CGFloat = 12
+    private let kVoiceParticleSizeBaseFactor: CGFloat = 0.5
+    private let kVoiceParticleSizeIntensityFactor: CGFloat = 0.5
+    private let kVoiceParticleSpeedBase: CGFloat = 1.0
+    private let kVoiceParticleSpeedRandomMax: CGFloat = 0.8
+    private let kVoiceParticleSpeedIntensityFactor: CGFloat = 2
+    private let kVoiceParticleOpacityMin: Double = 0.5
+    private let kVoiceParticleOpacityMax: Double = 0.9
+    private let kVoiceParticleHorizontalSpawnRange: ClosedRange<CGFloat> = -10...0
+    private let kVoiceParticleVerticalSpread: CGFloat = 5
+    
+    // Loading particles
+    private let kLoadingParticleCount: Int = 3
+    private let kLoadingCircleRadiusFactor: CGFloat = 0.3
+    private let kLoadingParticleSize: CGFloat = 3.0
+    private let kLoadingParticleSpeed: CGFloat = 0.2
+    private let kLoadingParticleOpacity: Double = 0.8
+    
+    // Transitions
+    private let kMaxTransitionParticles: Int = 12
+    private let kTransitionParticleVerticalRange: ClosedRange<CGFloat> = -20...20
+    private let kTransitionParticleSize: CGFloat = 6.0
+    private let kTransitionParticleSpeed: CGFloat = 0.3
+    private let kTransitionOpacityDecrement: Double = 0.1
+    private let kMaxRemainingParticles: Int = 5
+    private let kTransitionRandomMovementRange: ClosedRange<CGFloat> = -5...5
+    private let kTransitionMidPoint: Double = 0.5
+    private let kTransitionNewParticleFactor: Int = 5
+    private let kTransitionVoiceSpeedBase: CGFloat = 1.0
+    private let kTransitionVoiceSpeedRandomMax: CGFloat = 0.2
+    
+    // Pulse effect
+    private let kPulseScaleBase: Double = 1.0
+    private let kPulseScaleFactor: Double = 0.2
+    private let kPulseFrequency: Double = 1.2
+    private let kOpacityBase: Double = 0.7
+    private let kOpacityVariation: Double = 0.3
+    private let kOpacityFrequency: Double = 1.5
+    private let kColorMixSpeedFactor: Double = 0.02
+    
+    // Voice movement
+    private let kVoiceSpreadBase: CGFloat = 10
+    private let kVoiceSpreadHeightFactor: CGFloat = 0.3
+    private let kVoiceSpeedBase: CGFloat = 0.5
+    private let kVoiceSpeedRandomMax: CGFloat = 0.3
+    private let kVoiceWaveAmplitudeDivisor: CGFloat = 12
+    private let kVoiceWaveFrequencyBase: CGFloat = 1.0
+    
+    // Color thresholds
+    private let kLowIntensityThreshold: Double = 0.3
+    private let kHighIntensityThreshold: Double = 0.7
+    private let kColorBlendThreshold: CGFloat = 0.7
+    private let kLowIntensityOpacityBase: Double = 0.7
+    private let kLowIntensityOpacityFactor: Double = 0.3
+    
     // MARK: - Public Properties
     
     /// The intensity value (0.0 to 1.0) that drives the animation
@@ -50,7 +126,7 @@ public struct ParticleWaveEffect: View {
             GeometryReader { geometry in
                 Canvas { context, size in
                     // Draw background wave if intensity is high enough
-                    if intensity > 0.2 {
+                    if intensity > kMinIntensityForWave {
                         drawBackgroundWave(in: context, size: size)
                     }
                     
@@ -68,7 +144,7 @@ public struct ParticleWaveEffect: View {
                         particleContext.fill(path, with: .color(particle.color))
                         
                         // Add glow effect for larger particles
-                        if particle.size > 8 * 0.5 && intensity > 0.5 {
+                        if particle.size > kVoiceParticleSizeMax * 0.5 && intensity > 0.5 {
                             var glowContext = context
                             glowContext.opacity = particle.opacity * 0.5
                             glowContext.blendMode = .screen
@@ -120,8 +196,8 @@ public struct ParticleWaveEffect: View {
     
     /// Draw a subtle background wave effect
     private func drawBackgroundWave(in context: GraphicsContext, size: CGSize) {
-        let waveHeight = size.height * CGFloat(intensity) * 0.4
-        let segments = 20
+        let waveHeight = size.height * CGFloat(intensity) * kWaveHeightFactor
+        let segments = kWaveSegments
         let segmentWidth = size.width / CGFloat(segments)
         
         var path = Path()
@@ -135,7 +211,7 @@ public struct ParticleWaveEffect: View {
         }
         
         var waveContext = context
-        waveContext.opacity = 0.2 + (CGFloat(intensity) * 0.1)
+        waveContext.opacity = kWaveOpacityBase + (CGFloat(intensity) * kWaveOpacityFactor)
         waveContext.stroke(
             path,
             with: .linearGradient(
@@ -143,7 +219,7 @@ public struct ParticleWaveEffect: View {
                 startPoint: CGPoint(x: 0, y: size.height/2),
                 endPoint: CGPoint(x: size.width, y: size.height/2)
             ),
-            lineWidth: 2 + CGFloat(intensity) * 3
+            lineWidth: kWaveLineWidthBase + CGFloat(intensity) * kWaveLineWidthFactor
         )
     }
     
@@ -163,17 +239,19 @@ public struct ParticleWaveEffect: View {
     
     /// Create particles for voice recording mode
     private mutating func createVoiceParticles(in size: CGSize) {
-        let particleCount = 30
+        let particleCount = kVoiceParticleCount
         
         for _ in 0..<particleCount {
             let x = CGFloat.random(in: 0...size.width)
             let centerY = size.height / 2
-            let spread = CGFloat(10 + intensity * 10)
+            let spread = kVoiceParticleSpreadBase + CGFloat(intensity) * kVoiceParticleSpreadFactor
             let y = centerY + CGFloat.random(in: -spread...spread)
             
             // Base size on intensity
-            let particleSize = CGFloat.random(in: 3...12) * (0.5 + CGFloat(intensity) * 0.5)
-            let particleSpeed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2
+            let particleSize = CGFloat.random(in: kVoiceParticleSizeMin...kVoiceParticleSizeMax) * 
+                (kVoiceParticleSizeBaseFactor + CGFloat(intensity) * kVoiceParticleSizeIntensityFactor)
+            let particleSpeed = kVoiceParticleSpeedBase + 
+                CGFloat.random(in: 0...kVoiceParticleSpeedRandomMax) * CGFloat(intensity) * kVoiceParticleSpeedIntensityFactor
             
             // Create color based on intensity
             let particleColor = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
@@ -184,7 +262,7 @@ public struct ParticleWaveEffect: View {
                 speed: particleSpeed,
                 phase: Double.random(in: 0...2 * .pi),
                 color: particleColor,
-                opacity: Double.random(in: 0.5...0.9)
+                opacity: Double.random(in: kVoiceParticleOpacityMin...kVoiceParticleOpacityMax)
             ))
         }
     }
@@ -192,10 +270,10 @@ public struct ParticleWaveEffect: View {
     /// Create particles for loading mode
     private mutating func createLoadingParticles(in size: CGSize) {
         // In loading mode, create particles arranged in a circle
-        let particleCount = 3
+        let particleCount = kLoadingParticleCount
         let centerX = size.width / 2
         let centerY = size.height / 2
-        let radius = min(size.width, size.height) * 0.3
+        let radius = min(size.width, size.height) * kLoadingCircleRadiusFactor
         
         for i in 0..<particleCount {
             let angle = (Double(i) / Double(particleCount)) * 2 * .pi
@@ -203,8 +281,8 @@ public struct ParticleWaveEffect: View {
             let y = centerY + sin(angle) * radius
             
             // Create a particle with properties suitable for loading animation
-            let particleSize = 3.0
-            let particleSpeed = 0.5
+            let particleSize = kLoadingParticleSize
+            let particleSpeed = kLoadingParticleSpeed
             
             // Alternate colors for visual interest
             let colorMix = Double(i) / Double(particleCount)
@@ -216,7 +294,7 @@ public struct ParticleWaveEffect: View {
                 speed: particleSpeed,
                 phase: angle, // Use angle as phase for smooth loading animation
                 color: particleColor,
-                opacity: 0.8
+                opacity: kLoadingParticleOpacity
             ))
         }
     }
@@ -233,16 +311,16 @@ public struct ParticleWaveEffect: View {
     /// Update particle properties for the next animation frame
     private mutating func updateParticles(in size: CGSize) {
         // Increment global animation phase
-        animationPhase += 0.05
+        animationPhase += kAnimationPhaseIncrement
         
         // Handle mode transition if needed
         if isLoading && transitionProgress < 1.0 {
             // Transition to loading mode
-            transitionProgress += 0.05
+            transitionProgress += kTransitionProgressIncrement
             updateTransitionToLoading(in: size)
         } else if !isLoading && transitionProgress < 1.0 {
             // Transition to voice recording mode
-            transitionProgress += 0.05
+            transitionProgress += kTransitionProgressIncrement
             updateTransitionToVoice(in: size)
         } else if isLoading {
             // Regular loading mode update
@@ -265,33 +343,33 @@ public struct ParticleWaveEffect: View {
         
         let centerX = size.width / 2
         let centerY = size.height / 2
-        let targetRadius = min(size.width, size.height) * 0.3
+        let targetRadius = min(size.width, size.height) * kLoadingCircleRadiusFactor
         
         // If we need more particles for a proper loading animation, add them
-        if particles.count < 12 {
-            let needed = 12 - particles.count
+        if particles.count < kMaxTransitionParticles {
+            let needed = kMaxTransitionParticles - particles.count
             for i in 0..<needed {
                 // Add new particles that start from random positions
                 let randomX = CGFloat.random(in: 0...size.width)
-                let randomY = size.height / 2 + CGFloat.random(in: -20...20)
+                let randomY = size.height / 2 + CGFloat.random(in: kTransitionParticleVerticalRange)
                 
-                let angle = (Double(particles.count + i) / 12.0) * 2 * .pi
-                let colorMix = Double(particles.count + i) / 12.0
+                let angle = (Double(particles.count + i) / Double(kMaxTransitionParticles)) * 2 * .pi
+                let colorMix = Double(particles.count + i) / Double(kMaxTransitionParticles)
                 
                 particles.append(Particle(
                     position: CGPoint(x: randomX, y: randomY),
-                    size: 6.0,
-                    speed: 1.0,
+                    size: kTransitionParticleSize,
+                    speed: kTransitionParticleSpeed,
                     phase: angle,
                     color: interpolateColor(from: baseColor, to: accentColor, amount: colorMix),
-                    opacity: 0.8
+                    opacity: kLoadingParticleOpacity
                 ))
             }
         }
         
         // Move existing particles toward their loading position
         for i in 0..<particles.count {
-            let normalizedIndex = Double(i % 12) / 12.0
+            let normalizedIndex = Double(i % kMaxTransitionParticles) / Double(kMaxTransitionParticles)
             let targetAngle = normalizedIndex * 2 * .pi
             
             // Calculate target position in the circle
@@ -306,7 +384,7 @@ public struct ParticleWaveEffect: View {
             // Update particle
             var updatedParticle = particles[i]
             updatedParticle.position = CGPoint(x: newX, y: newY)
-            updatedParticle.size = particles[i].size + (6.0 - particles[i].size) * progress
+            updatedParticle.size = particles[i].size + (kTransitionParticleSize - particles[i].size) * progress
             updatedParticle.color = interpolateColor(
                 from: particles[i].color,
                 to: interpolateColor(from: baseColor, to: accentColor, amount: normalizedIndex),
@@ -317,11 +395,10 @@ public struct ParticleWaveEffect: View {
         }
         
         // If we have too many particles, gradually fade out excess ones
-        let particleCount = 5
-        if particles.count > particleCount {
-            for i in particleCount..<particles.count {
+        if particles.count > kMaxRemainingParticles {
+            for i in kMaxRemainingParticles..<particles.count {
                 var particle = particles[i]
-                particle.opacity = max(0, particle.opacity - 0.1)
+                particle.opacity = max(0, particle.opacity - kTransitionOpacityDecrement)
                 particles[i] = particle
             }
             
@@ -345,14 +422,15 @@ public struct ParticleWaveEffect: View {
             var particle = particles[i]
             
             // Add some random movement to break the circle
-            let randomX = CGFloat.random(in: -5...5) * CGFloat(transitionProgress)
-            let randomY = CGFloat.random(in: -5...5) * CGFloat(transitionProgress)
+            let randomX = CGFloat.random(in: kTransitionRandomMovementRange) * CGFloat(transitionProgress)
+            let randomY = CGFloat.random(in: kTransitionRandomMovementRange) * CGFloat(transitionProgress)
             
             particle.position.x += randomX
             particle.position.y += randomY
             
             // Gradually adjust size based on intensity
-            let targetSize = CGFloat.random(in: 3...12) * (0.5 + CGFloat(intensity) * 0.5)
+            let targetSize = CGFloat.random(in: kVoiceParticleSizeMin...kVoiceParticleSizeMax) * 
+                (kVoiceParticleSizeBaseFactor + CGFloat(intensity) * kVoiceParticleSizeIntensityFactor)
             particle.size = particle.size + (targetSize - particle.size) * CGFloat(transitionProgress)
             
             // Update color
@@ -362,23 +440,25 @@ public struct ParticleWaveEffect: View {
         }
         
         // Add new particles to transition toward voice mode
-        if transitionProgress > 0.5 && particles.count < 30 {
-            let particlesToAdd = Int(transitionProgress * 5)
+        if transitionProgress > kTransitionMidPoint && particles.count < kVoiceParticleCount {
+            let particlesToAdd = Int(transitionProgress * CGFloat(kTransitionNewParticleFactor))
             
             for _ in 0..<particlesToAdd {
                 let x = CGFloat.random(in: 0...size.width)
                 let centerY = size.height / 2
-                let spread = CGFloat(10 + intensity * 10)
+                let spread = kVoiceParticleSpreadBase + CGFloat(intensity) * kVoiceParticleSpreadFactor
                 let y = centerY + CGFloat.random(in: -spread...spread)
                 
-                let particleSize = CGFloat.random(in: 3...12) * (0.5 + CGFloat(intensity) * 0.5)
-                let particleSpeed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2
+                let particleSize = CGFloat.random(in: kVoiceParticleSizeMin...kVoiceParticleSizeMax) * 
+                    (kVoiceParticleSizeBaseFactor + CGFloat(intensity) * kVoiceParticleSizeIntensityFactor)
+                let particleSpeed = kTransitionVoiceSpeedBase + 
+                    CGFloat.random(in: 0...kTransitionVoiceSpeedRandomMax) * CGFloat(intensity) * kVoiceParticleSpeedIntensityFactor
                 let particleColor = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
                 
                 // Start with low opacity and fade in
-                let opacity = Double(transitionProgress) - 0.5
+                let opacity = Double(transitionProgress) - kTransitionMidPoint
                 
-                if opacity > 0 && particles.count < 30 {
+                if opacity > 0 && particles.count < kVoiceParticleCount {
                     particles.append(Particle(
                         position: CGPoint(x: x, y: y),
                         size: particleSize,
@@ -395,11 +475,11 @@ public struct ParticleWaveEffect: View {
     /// Update particles in loading mode
     private mutating func updateLoadingMode(in size: CGSize) {
         // Increment loading phase
-        loadingPhase += 0.05
+        loadingPhase += kLoadingPhaseIncrement
         
         let centerX = size.width / 2
         let centerY = size.height / 2
-        let radius = min(size.width, size.height) * 0.3
+        let radius = min(size.width, size.height) * kLoadingCircleRadiusFactor
         
         // Update each particle in the loading circle
         for i in 0..<particles.count {
@@ -414,15 +494,15 @@ public struct ParticleWaveEffect: View {
             let y = centerY + sin(angle) * radius
             
             // Apply pulsing effect
-            let pulseScale = 1.0 + sin(loadingPhase * 2 + normalizedIndex * .pi) * 0.2
+            let pulseScale = kPulseScaleBase + sin(loadingPhase * kPulseFrequency + normalizedIndex * .pi) * kPulseScaleFactor
             
             // Update particle
             particle.position = CGPoint(x: x, y: y)
-            particle.size = 6.0 * pulseScale
-            particle.opacity = 0.7 + sin(loadingPhase * 3 + normalizedIndex * .pi * 2) * 0.3
+            particle.size = kTransitionParticleSize * pulseScale
+            particle.opacity = kOpacityBase + sin(loadingPhase * kOpacityFrequency + normalizedIndex * .pi * 2) * kOpacityVariation
             
             // Gradually shift colors for visual interest
-            let colorMix = (normalizedIndex + loadingPhase * 0.05).truncatingRemainder(dividingBy: 1.0)
+            let colorMix = (normalizedIndex + loadingPhase * kColorMixSpeedFactor).truncatingRemainder(dividingBy: 1.0)
             particle.color = interpolateColor(from: baseColor, to: accentColor, amount: colorMix)
             
             particles[i] = particle
@@ -433,7 +513,7 @@ public struct ParticleWaveEffect: View {
     private mutating func updateVoiceMode(in size: CGSize) {
         // Calculate wave parameters based on intensity
         let centerY = size.height / 2
-        let spread = 10 + CGFloat(intensity) * (size.height * 0.3)
+        let spread = kVoiceSpreadBase + CGFloat(intensity) * (size.height * kVoiceSpreadHeightFactor)
         
         // Update each particle
         for i in 0..<particles.count {
@@ -447,15 +527,17 @@ public struct ParticleWaveEffect: View {
                 particle.position.x = 0
                 
                 // Update properties for the new cycle
-                particle.size = CGFloat.random(in: 3...12) * (0.5 + CGFloat(intensity) * 0.5)
-                particle.speed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2
+                particle.size = CGFloat.random(in: kVoiceParticleSizeMin...kVoiceParticleSizeMax) * 
+                    (kVoiceParticleSizeBaseFactor + CGFloat(intensity) * kVoiceParticleSizeIntensityFactor)
+                particle.speed = kVoiceSpeedBase + 
+                    CGFloat.random(in: 0...kVoiceSpeedRandomMax) * CGFloat(intensity) * kVoiceParticleSpeedIntensityFactor
                 particle.color = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
-                particle.opacity = Double.random(in: 0.5...0.9)
+                particle.opacity = Double.random(in: kVoiceParticleOpacityMin...kVoiceParticleOpacityMax)
             }
             
             // Vertical movement with wave pattern
-            let waveAmplitude = spread * (particle.size / 12)
-            let waveFrequency = 1.0 + (particle.size / 12)
+            let waveAmplitude = spread * (particle.size / kVoiceWaveAmplitudeDivisor)
+            let waveFrequency = kVoiceWaveFrequencyBase + (particle.size / kVoiceWaveAmplitudeDivisor)
             let yOffset = sin(
                 (particle.phase + Double(particle.position.x) / Double(size.width) * 4 * .pi + animationPhase) * waveFrequency
             ) * Double(waveAmplitude)
@@ -467,14 +549,16 @@ public struct ParticleWaveEffect: View {
         }
         
         // Add new particles if needed
-        while particles.count < 30 {
-            let x = CGFloat.random(in: -10...0) // Start just off-screen
+        while particles.count < kVoiceParticleCount {
+            let x = CGFloat.random(in: kVoiceParticleHorizontalSpawnRange) // Start just off-screen
             let centerY = size.height / 2
-            let spread = CGFloat(5)
+            let spread = kVoiceParticleVerticalSpread
             let y = centerY + CGFloat.random(in: -spread...spread)
             
-            let particleSize = CGFloat.random(in: 3...12) * (0.5 + CGFloat(intensity) * 0.5)
-            let particleSpeed = 1.0 + CGFloat.random(in: 0...0.8) * CGFloat(intensity) * 2
+            let particleSize = CGFloat.random(in: kVoiceParticleSizeMin...kVoiceParticleSizeMax) * 
+                (kVoiceParticleSizeBaseFactor + CGFloat(intensity) * kVoiceParticleSizeIntensityFactor)
+            let particleSpeed = kVoiceSpeedBase + 
+                CGFloat.random(in: 0...kVoiceSpeedRandomMax) * CGFloat(intensity) * kVoiceParticleSpeedIntensityFactor
             let particleColor = getParticleColor(intensity: intensity, random: CGFloat.random(in: 0...1))
             
             particles.append(Particle(
@@ -483,7 +567,7 @@ public struct ParticleWaveEffect: View {
                 speed: particleSpeed,
                 phase: Double.random(in: 0...2 * .pi),
                 color: particleColor,
-                opacity: Double.random(in: 0.5...0.9)
+                opacity: Double.random(in: kVoiceParticleOpacityMin...kVoiceParticleOpacityMax)
             ))
         }
     }
@@ -493,12 +577,12 @@ public struct ParticleWaveEffect: View {
         let energyLevel = Double(intensity)
         
         // At low intensity, use mostly base color
-        if energyLevel < 0.3 {
-            return baseColor.opacity(0.7 + Double(random) * 0.3)
+        if energyLevel < kLowIntensityThreshold {
+            return baseColor.opacity(kLowIntensityOpacityBase + Double(random) * kLowIntensityOpacityFactor)
         } 
         // At medium intensity, blend between base and accent
-        else if energyLevel < 0.7 {
-            return random > 0.7 ? accentColor : baseColor
+        else if energyLevel < kHighIntensityThreshold {
+            return random > kColorBlendThreshold ? accentColor : baseColor
         } 
         // At high intensity, create more vibrant colors
         else {
@@ -534,9 +618,10 @@ public struct ParticleWaveEffect: View {
 public extension ParticleWaveEffect {
     /// Enable or disable loading mode
     func loadingMode(_ isLoading: Bool) -> ParticleWaveEffect {
-        var copy = self
-        copy.isLoading = isLoading
-        return copy
+        let copy = self
+        var mutableCopy = copy
+        mutableCopy.isLoading = isLoading
+        return mutableCopy
     }
 }
 

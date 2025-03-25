@@ -40,7 +40,6 @@ class PopupWindowManager: ObservableObject {
     }
     
     @Published var currentState: PopupState = .recording
-    @Published var isWindowRound: Bool = false
     
     private init() {}
     
@@ -99,7 +98,6 @@ class PopupWindowManager: ObservableObject {
             // Reset state to recording
             currentState = .recording
             animationState.exitLoadingMode()
-            isWindowRound = false
             
             // Ensure animation is properly reset by recreating the hosting view with a fresh RecordingSessionView
             window.contentView = NSHostingView(rootView: RecordingSessionView())
@@ -139,7 +137,6 @@ class PopupWindowManager: ObservableObject {
         // Start audio recording and reset state
         currentState = .recording
         animationState.exitLoadingMode() // Ensure we start in normal mode
-        isWindowRound = false
         audioRecorder.startRecording()
         
         // Keep a reference to the window
@@ -171,25 +168,8 @@ class PopupWindowManager: ObservableObject {
         // Stop audio level simulation
         stopAudioLevelSimulation()
         
-        // Enter loading mode and make window round
+        // Enter loading mode
         animationState.enterLoadingMode()
-        isWindowRound = true
-        
-        // Make window square when in loading mode
-        if let window = popupWindow {
-            // Animate the window size change
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.3
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                
-                let newFrame = NSRect(x: window.frame.origin.x + (window.frame.width - 80) / 2,
-                                     y: window.frame.origin.y + (window.frame.height - 80) / 2,
-                                     width: 80,
-                                     height: 80)
-                
-                window.animator().setFrame(newFrame, display: true)
-            }
-        }
         
         // Get the API key from settings
         let apiKey = settingsManager.getCurrentAPIKey()
@@ -324,7 +304,6 @@ class PopupWindowManager: ObservableObject {
             
             // Reset animation state
             animationState.exitLoadingMode()
-            isWindowRound = false
             
             // Close the window
             window.close()
@@ -441,17 +420,9 @@ struct RecordingSessionView: View {
                 
                 case .transcribing:
                     // Loading indicator UI
-                    if windowManager.isWindowRound {
-                        ParticleWaveEffect(intensity: 0.5)
-                            .loadingMode(true)
-                            .frame(width: 60, height: 60)
-                    } else {
-                        // Fallback for transition states
-                        ParticleWaveEffect(intensity: 0.5)
-                            .loadingMode(true)
-                            .frame(height: 30)
-                            .padding(.horizontal, 5)
-                    }
+                    ParticleWaveEffect(intensity: 0.1)
+                        .loadingMode(true)
+                        .frame(width: 200, height: 100)
                 
                 case .completed(let text):
                     // Success UI
@@ -553,18 +524,10 @@ struct RecordingSessionView: View {
                 .padding(4)
             }
         }
-        .frame(width: windowManager.isWindowRound ? 80 : 160, 
-               height: windowManager.isWindowRound ? 80 : windowManager.currentState.windowHeight)
+        .frame(width: 160, height: windowManager.currentState.windowHeight)
         .background(
-            Group {
-                if windowManager.isWindowRound {
-                    Circle()
-                        .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.8))
-                } else {
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.8))
-                }
-            }
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(red: 0.1, green: 0.1, blue: 0.1, opacity: 0.8))
         )
         .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
     }
@@ -597,49 +560,3 @@ extension PopupWindowManager.PopupState {
         }
     }
 }
-
-// Animated wave background for the audio visualization
-struct WaveShape: Shape {
-    var audioLevel: Float
-    var phase: Double
-    
-    // For Shape animation
-    var animatableData: AnimatablePair<Float, Double> {
-        get { AnimatablePair(audioLevel, phase) }
-        set {
-            audioLevel = newValue.first
-            phase = newValue.second
-        }
-    }
-    
-    func path(in rect: CGRect) -> Path {
-        let width = rect.width
-        let height = rect.height
-        let midHeight = height / 2
-        
-        // Higher amplitude when audio level is higher
-        let amplitude = CGFloat(audioLevel) * height * 0.4
-        
-        // Number of waves to display
-        let waves = 3
-        
-        var path = Path()
-        path.move(to: CGPoint(x: 0, y: midHeight))
-        
-        for x in stride(from: 0, to: width, by: 1) {
-            let relativeX = x / width
-            
-            // Multiple sine waves with different frequencies
-            let sin1 = sin(relativeX * .pi * 2 * Double(waves) + phase)
-            let sin2 = sin(relativeX * .pi * 4 * Double(waves) + phase * 1.5) * 0.5
-            
-            // Combine waves
-            let combinedSin = (sin1 + sin2) / 1.5
-            
-            let y = midHeight + CGFloat(combinedSin) * amplitude
-            path.addLine(to: CGPoint(x: x, y: y))
-        }
-        
-        return path
-    }
-} 
