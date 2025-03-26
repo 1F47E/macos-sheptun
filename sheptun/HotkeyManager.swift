@@ -139,7 +139,7 @@ class HotkeyManager {
             
             // Toggle the popup window
             DispatchQueue.main.async {
-                PopupWindowManager.shared.togglePopupWindow()
+                PopupWindowManager.shared.toggleRecording()
             }
         }
         

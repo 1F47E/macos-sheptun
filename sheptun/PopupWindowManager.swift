@@ -1,589 +1,478 @@
+//
+//  PopupWindowManager.swift
+//  sheptun
+//
+//  Created by Example on 2025-03-26.
+//
+
 import Cocoa
 import SwiftUI
 
-class PopupWindowManager: ObservableObject {
+/// Represents the various states of our floating popup
+enum TranscriberState {
+    case recording
+    case transcribing
+    case completed(String)
+    case error(String)
+    case noMicrophone
+}
+
+/// Manages a single, reusable NSWindow that shows a SwiftUI content view.
+/// The view reacts to `currentState` changes rather than creating new windows.
+class PopupWindowManager: NSObject, ObservableObject {
+    
     static let shared = PopupWindowManager()
     
-    private var popupWindow: NSWindow?
     private let logger = Logger.shared
     private let audioRecorder = AudioRecorder.shared
-    private let openAIManager = OpenAIManager.shared
     private let settingsManager = SettingsManager.shared
+    
+    /// The current state of the transcriber window (recording, error, etc).
+    @Published var currentState: TranscriberState = .recording {
+        didSet {
+            // Whenever state changes, update the SwiftUI content and possibly the window size.
+            updateWindowSizeIfNeeded()
+        }
+    }
+    
+    /// The floating NSWindow we create once and reuse.
+    private var popupWindow: NSWindow?
+    
+    /// A single hosting controller that displays the SwiftUI content.
+    /// We update its rootView whenever `currentState` changes.
+    private var hostingController: NSHostingController<TranscriberPopupView>?
+    
+    /// We'll set up a timer for simulating or tracking audio levels if needed.
     private var audioLevelSimulationTimer: Timer?
     
-    // Create a function to get a fresh RecordingSessionView instead of a stored property
-    private func createRecordingSessionView() -> RecordingSessionView {
-        return RecordingSessionView()
+    // MARK: - Showing / Hiding
+    
+    /// Toggles between recording and transcribing states.
+    /// If no window is visible, starts recording.
+    /// If recording is in progress, stops recording and starts transcription.
+    func toggleRecording() {
+        if popupWindow?.isVisible == true {
+            // Check current state with pattern matching
+            switch currentState {
+            case .recording:
+                // Already recording, start transcription
+                startTranscription()
+            default:
+                // For other states like error or transcribing, just close
+                closePopup()
+            }
+        } else {
+            // Not recording, start new recording
+            showOrRecord()
+        }
     }
     
-    // Add a way to track the current state of the popup
-    enum PopupState {
-        case recording
-        case transcribing
-        case completed(String)
-        case error(String)
-        case noMicrophone
-    }
-    
-    @Published var currentState: PopupState = .recording
-    
-    private init() {}
-    
-    var isWindowVisible: Bool {
-        return popupWindow != nil && popupWindow!.isVisible
-    }
-    
-    func togglePopupWindow() {
-        let audioRecorder = AudioRecorder.shared
-        
-        // First check if we have any microphones available
+    /// Shows the popup near the mouse pointer (top-left corner pinned),
+    /// and sets up for recording. If no mic or permission, transitions to error states.
+    func showOrRecord() {
+        // Check mic presence
         let availableMics = settingsManager.getAvailableMicrophones()
         if availableMics.isEmpty {
-            // No microphones found - show error popup
-            logger.log("No microphones found, showing error popup", level: .warning)
-            showMicrophoneErrorPopup()
+            logger.log("No microphones found => show noMicrophone error", level: .warning)
+            currentState = .noMicrophone
+            showWindowAtMousePointer()
             return
         }
         
-        // Check if we have microphone permission
+        // Check mic permission
         if !audioRecorder.checkMicrophonePermission() {
-            logger.log("Microphone permission not granted, requesting access", level: .warning)
-            
-            // Request microphone permission
+            logger.log("Mic permission not granted => requesting...", level: .warning)
             audioRecorder.requestMicrophonePermission { [weak self] granted in
                 guard let self = self else { return }
-                
                 if granted {
-                    self.logger.log("Microphone access granted, showing popup", level: .info)
-                    // Now that we have permission, show the popup
-                    self.showPopupWindowAfterPermissionCheck()
+                    self.logger.log("Mic permission granted => show window & record", level: .info)
+                    DispatchQueue.main.async {
+                        self.currentState = .recording
+                        self.showWindowAtMousePointer()
+                        self.audioRecorder.startRecording()
+                    }
                 } else {
-                    self.logger.log("Microphone access not granted, cannot record", level: .warning)
+                    self.logger.log("Mic permission denied => error state", level: .warning)
+                    DispatchQueue.main.async {
+                        self.currentState = .error("Microphone access denied.")
+                        self.showWindowAtMousePointer()
+                    }
                 }
             }
         } else {
-            // We have permission, proceed normally
-            if isWindowVisible {
-                // If already visible, start transcription process
-                startTranscription()
-            } else {
-                // Show the popup and start recording
-                showPopupWindow()
-                logger.log("Popup window toggled on", level: .info)
+            // We have a microphone and permission => show & record
+            currentState = .recording
+            showWindowAtMousePointer()
+            audioRecorder.startRecording()
+        }
+    }
+    
+    /// Closes (hides) the popup window.
+    func closePopup() {
+        audioRecorder.stopRecording()
+        stopAudioLevelSimulation()
+        popupWindow?.orderOut(nil)
+    }
+    
+    // MARK: - Transcription
+    
+    /// User triggers transcription after recording.
+    func startTranscription() {
+        guard popupWindow?.isVisible == true else { return }
+        
+        currentState = .transcribing
+        audioRecorder.stopRecording()
+        stopAudioLevelSimulation()
+        
+        let apiKey = settingsManager.getCurrentAPIKey()
+        if apiKey.isEmpty {
+            currentState = .error("API Key not set in settings.")
+            return
+        }
+        
+        // In your code: transcribe in background
+        Task.detached { [weak self] in
+            guard let self = self else { return }
+            
+            guard let recordedFileURL = self.audioRecorder.getRecordingFileURL() else {
+                await MainActor.run {
+                    self.currentState = .error("Recording file not found.")
+                }
+                return
+            }
+            
+            let providerType = self.settingsManager.getCurrentAIProvider()
+            let provider = AIProviderFactory.getProvider(type: providerType)
+            
+            let result = await provider.transcribeAudio(
+                audioFileURL: recordedFileURL,
+                apiKey: apiKey,
+                model: self.settingsManager.transcriptionModel,
+                temperature: self.settingsManager.transcriptionTemperature,
+                language: "en"
+            )
+            
+            await MainActor.run {
+                switch result {
+                case .success(let transcription):
+                    // Copy result to clipboard, simulate Cmd+V, etc.
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(transcription, forType: .string)
+                    
+                    self.simulatePasteAndClose()
+                    
+                case .failure(let error):
+                    self.currentState = .error("Transcription failed: \(error.localizedDescription)")
+                }
             }
         }
     }
     
-    func showPopupWindow() {
-        // If window already exists, close it first to ensure fresh state
-        if let window = popupWindow {
-            window.close()
-            popupWindow = nil
-            logger.log("Closed existing window before creating new one", level: .debug)
+    private func simulatePasteAndClose() {
+        // You can tweak the delay to ensure copy finished
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            let source = CGEventSource(stateID: .hidSystemState)
+            let cmdVDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
+            cmdVDown?.flags = .maskCommand
+            cmdVDown?.post(tap: .cghidEventTap)
+            
+            let cmdVUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
+            cmdVUp?.flags = .maskCommand
+            cmdVUp?.post(tap: .cghidEventTap)
+            
+            // Close after short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self?.closePopup()
+            }
         }
+    }
+    
+    // MARK: - Window Creation & Positioning
+    
+    /// Creates the NSWindow if needed, updates the SwiftUI content, and
+    /// positions it at the mouse pointer (pinned top-left). Clamped to screen bounds.
+    private func showWindowAtMousePointer() {
+        // Create the window once
+        if popupWindow == nil {
+            createPopupWindow()
+        }
+        guard let window = popupWindow, let controller = hostingController else { return }
         
-        logger.log("Creating new recording session window", level: .info)
+        // Update SwiftUI content to reflect new state
+        controller.rootView = TranscriberPopupView(manager: self)
         
-        // Get the height for the current state
-        let height = currentState.windowHeight
+        // Resize the window for the current state (keep top-left corner the same)
+        updateWindowSizeIfNeeded()
         
-        // Create a window without standard decorations and non-activating
+        // Place top-left near mouse pointer
+        positionTopLeftAtMouse(for: window)
+        
+        // Show the window in front
+        window.orderFront(nil)
+    }
+    
+    /// Actually creates the floating NSWindow and the hosting controller (once).
+    private func createPopupWindow() {
+        // Decide an initial size (e.g. for 'recording')
+        let size = currentState.windowSize
+        
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 160, height: height),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         
-        // Configure window appearance
+        window.isReleasedWhenClosed = false
+        window.level = .floating
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = true
-        window.level = .floating
-        window.isReleasedWhenClosed = false
         
-        // Reset state to recording
-        currentState = .recording
+        // Create SwiftUI hosting
+        let rootView = TranscriberPopupView(manager: self)
+        let controller = NSHostingController(rootView: rootView)
         
-        // Create a fresh view each time
-        let freshView = createRecordingSessionView()
-        let hostingView = NSHostingView(rootView: freshView)
-        window.contentView = hostingView
-        
-        // Position window at top center of the screen
-        positionWindowAtTopCenter(window)
-        
-        // Show window without activating app or making window key
-        window.orderFront(nil)
-        
-        // Start audio recording and reset state
-        audioRecorder.startRecording()
-        
-        // Keep a reference to the window
+        window.contentView = controller.view
         self.popupWindow = window
+        self.hostingController = controller
         
-        logger.log("New recording session window created and displayed", level: .debug)
+        logger.log("Created a single reusable window & hosting controller", level: .info)
     }
     
-    // New method to handle showing popup after permission check
-    private func showPopupWindowAfterPermissionCheck() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+    /// Re-sizes the window if the needed height changed (width is fixed).
+    /// This keeps the top-left corner pinned, so it expands downward.
+    private func updateWindowSizeIfNeeded() {
+        guard let window = popupWindow else { return }
+        
+        // Current frame
+        let oldFrame = window.frame
+        let neededSize = currentState.windowSize
+        
+        // If the width or height differ, update. Keep the same `origin.y` for top-left pin.
+        let deltaHeight = neededSize.height - oldFrame.size.height
+        
+        if abs(deltaHeight) > 0.1 || abs(neededSize.width - oldFrame.size.width) > 0.1 {
+            // Keep top-left corner the same
+            let newOrigin = NSPoint(x: oldFrame.origin.x,
+                                    y: oldFrame.origin.y - deltaHeight)
             
-            if !self.isWindowVisible {
-                self.showPopupWindow()
-                self.logger.log("Popup window shown after permission granted", level: .info)
-            }
-        }
-    }
-    
-    func startTranscription() {
-        guard popupWindow != nil else { return }
-        
-        // Update state to show we're transcribing
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.currentState = .transcribing
-            self.logger.log("Starting transcription process", level: .info)
-            
-            // Update the window size for the new state
-            if let window = self.popupWindow {
-                // Update window size
-                let height = self.currentState.windowHeight
-                window.setContentSize(NSSize(width: 160, height: height))
-                
-                // Force refresh the view with new state
-                let freshView = self.createRecordingSessionView()
-                let hostingView = NSHostingView(rootView: freshView)
-                window.contentView = hostingView
-                
-                // Reposition to account for size change
-                self.positionWindowAtTopCenter(window)
-            }
-        }
-        
-        // Stop recording first
-        audioRecorder.stopRecording()
-        
-        // Stop audio level simulation
-        stopAudioLevelSimulation()
-        
-        // Get the API key from settings
-        let apiKey = settingsManager.getCurrentAPIKey()
-        
-        if apiKey.isEmpty {
-            // Handle missing API key
-            DispatchQueue.main.async { [weak self] in
-                self?.currentState = .error("API key not set in settings")
-                self?.logger.log("Cannot transcribe: API key not set", level: .error)
-            }
-            
-            // Close the window after a delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-                self?.closePopupWindow()
-            }
-            return
-        }
-        
-        // Start transcription in a background task
-        Task { [weak self] in
-            guard let self = self else { return }
-            
-            do {
-                // Get the path to the recorded file directly from the AudioRecorder
-                guard let recordedFileURL = audioRecorder.getRecordingFileURL() else {
-                    await MainActor.run {
-                        self.currentState = .error("Recording file not found")
-                        self.logger.log("No recording file available for transcription", level: .error)
-                    }
-                    
-                    // Close window after a delay
-                    await MainActor.run {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-                            self?.closePopupWindow()
-                        }
-                    }
-                    return
-                }
-                
-                self.logger.log("Using recorded audio file at: \(recordedFileURL.path)", level: .debug)
-                
-                // Get file size for debugging
-                do {
-                    let attributes = try FileManager.default.attributesOfItem(atPath: recordedFileURL.path)
-                    if let fileSize = attributes[.size] as? NSNumber {
-                        self.logger.log("Audio file size for transcription: \(fileSize.intValue) bytes", level: .debug)
-                    }
-                } catch {
-                    self.logger.log("Error getting file size: \(error.localizedDescription)", level: .warning)
-                }
-                
-                // Get the current AI provider based on settings
-                let currentProvider = settingsManager.getCurrentAIProvider()
-                let apiProvider = AIProviderFactory.getProvider(type: currentProvider)
-                
-                // Attempt to transcribe the audio with the recorded file
-                let result = await apiProvider.transcribeAudio(
-                    audioFileURL: recordedFileURL,
-                    apiKey: apiKey,
-                    model: settingsManager.transcriptionModel,
-                    temperature: settingsManager.transcriptionTemperature,
-                    language: "en"
-                )
-                
-                // Handle the result on the main thread
-                await MainActor.run {
-                    switch result {
-                    case .success(let transcription):
-                        // Transcription successful
-                        self.logger.log("Transcription successful: \(transcription)", level: .info)
-                        
-                        // Copy to clipboard
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(transcription, forType: .string)
-                        
-                        // Simulate Cmd+V paste keystroke
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            let source = CGEventSource(stateID: .hidSystemState)
-                            
-                            // Create a 'v' key down event with command modifier
-                            let cmdV = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-                            cmdV?.flags = .maskCommand
-                            
-                            // Post the event
-                            cmdV?.post(tap: .cghidEventTap)
-                            
-                            // Create a 'v' key up event
-                            let cmdVUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-                            cmdVUp?.flags = .maskCommand
-                            cmdVUp?.post(tap: .cghidEventTap)
-                            
-                            // Close window after pasting (with a small delay)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                                self?.closePopupWindow()
-                            }
-                        }
-                        
-                        // Don't close window here - we'll do it after pasting
-                        
-                    case .failure(let error):
-                        // Transcription failed
-                        self.logger.log("Transcription failed: \(error.localizedDescription)", level: .error)
-                        self.currentState = .error(error.localizedDescription)
-                        
-                        // Close window after a delay
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-                            self?.closePopupWindow()
-                        }
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    self.logger.log("Failed to process audio: \(error.localizedDescription)", level: .error)
-                    self.currentState = .error("Failed to process audio: \(error.localizedDescription)")
-                    
-                    // Close window after a delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-                        self?.closePopupWindow()
-                    }
-                }
-            }
+            let newFrame = NSRect(origin: newOrigin, size: neededSize)
+            window.setFrame(newFrame, display: true, animate: true)
         }
     }
     
-    func closePopupWindow() {
-        if let window = popupWindow {
-            // Stop audio recording
-            audioRecorder.stopRecording()
-            
-            // Stop audio level simulation
-            stopAudioLevelSimulation()
-            
-            // Reset state to recording for next session
-            currentState = .recording
-            
-            // Close the window
-            window.close()
-            popupWindow = nil
-            logger.log("Recording session window closed", level: .debug)
-        }
-    }
-    
-    private func positionWindowAtTopCenter(_ window: NSWindow) {
-        guard let screen = NSScreen.main else { return }
+    /// Positions the **top-left** of the window near the mouse pointer,
+    /// clamped so it doesn't go off-screen.
+    private func positionTopLeftAtMouse(for window: NSWindow) {
+        let mouseLoc = NSEvent.mouseLocation  // In global screen coords
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLoc) })
+               ?? NSScreen.main else { return }
         
+        let windowSize = currentState.windowSize
         let screenFrame = screen.visibleFrame
         
-        // Make sure window size matches current state
-        let height = currentState.windowHeight
-        window.setContentSize(NSSize(width: 160, height: height))
+        // The top-left corner we want
+        let desiredOriginX = mouseLoc.x
+        let desiredOriginY = mouseLoc.y
         
-        let windowSize = window.frame.size
-        let centerX = screenFrame.midX - (windowSize.width / 2)
-        let bottomY = screenFrame.minY + 20 // 20px from bottom
+        // Now clamp so the entire window stays on this screen
+        let minX = screenFrame.minX
+        let maxX = screenFrame.maxX - windowSize.width
+        let minY = screenFrame.minY
+        let maxY = screenFrame.maxY
         
-        let bottomCenterPoint = NSPoint(x: centerX, y: bottomY)
-        window.setFrameOrigin(bottomCenterPoint)
+        // We want top-left pinned, so the actual "origin" in NSWindow coords is:
+        // (x, y - height). We'll clamp that in two steps:
         
-        logger.log("Positioned window at: x=\(centerX), y=\(bottomY) with height: \(height)", level: .debug)
+        var clampedX = min(maxX, desiredOriginX)
+        clampedX = max(minX, clampedX)
+        
+        // top-left is desiredOriginY; the window origin is bottom-left
+        var topLeftY = desiredOriginY
+        var bottomY = topLeftY - windowSize.height
+        
+        // clamp the bottom
+        if bottomY < minY {
+            bottomY = minY
+            topLeftY = bottomY + windowSize.height
+        }
+        // clamp the top
+        if topLeftY > maxY {
+            topLeftY = maxY
+            bottomY = topLeftY - windowSize.height
+        }
+        
+        let finalOrigin = NSPoint(x: clampedX, y: bottomY)
+        window.setFrameOrigin(finalOrigin)
     }
     
-    // Audio level simulation methods
-    private func startAudioLevelSimulation() {
+    // MARK: - Audio Level Simulation / Cleanup
+    
+    func startAudioLevelSimulation() {
         stopAudioLevelSimulation()
-        
         audioLevelSimulationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            // Simulate a "breathing" audio level between 0.1 and 0.7
-            let time = Date().timeIntervalSince1970
-            let level = (sin(time * 3) + 1) / 2 * 0.6 + 0.1
-            
+            guard let self = self else { return }
+            let t = Date().timeIntervalSince1970
+            let level = (sin(t * 3) + 1) / 2 * 0.6 + 0.1
             DispatchQueue.main.async {
-                self?.audioRecorder.audioLevel = Float(level)
+                self.audioRecorder.audioLevel = Float(level)
             }
         }
     }
     
-    private func stopAudioLevelSimulation() {
+    func stopAudioLevelSimulation() {
         audioLevelSimulationTimer?.invalidate()
         audioLevelSimulationTimer = nil
     }
-    
-    // Add method to show error popup for no microphone
-    private func showMicrophoneErrorPopup() {
-        // If window already exists, just update its state
-        if let window = popupWindow {
-            logger.log("Updating existing popup window to show microphone error", level: .debug)
-            currentState = .noMicrophone
-            window.orderFront(nil)
-            return
-        }
-        
-        logger.log("Creating new window to show microphone error", level: .info)
-        
-        // Create a window without standard decorations and non-activating
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        
-        // Configure window appearance
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.hasShadow = true
-        window.level = .floating
-        window.isReleasedWhenClosed = false
-        
-        // Set up the window with the error view - use a fresh view
-        currentState = .noMicrophone
-        let freshView = createRecordingSessionView()
-        let hostingView = NSHostingView(rootView: freshView)
-        window.contentView = hostingView
-        
-        // Position window at top center of the screen
-        positionWindowAtTopCenter(window)
-        
-        // Show window without activating app or making window key
-        window.orderFront(nil)
-        
-        // Keep a reference to the window
-        self.popupWindow = window
-    }
 }
 
-// SwiftUI view for the recording session window
-struct RecordingSessionView: View {
-    @ObservedObject private var audioRecorder = AudioRecorder.shared
-    @ObservedObject private var windowManager = PopupWindowManager.shared
+// MARK: - SwiftUI Content
+
+/// The SwiftUI view that displays inside our single NSWindow.
+/// Observes the `PopupWindowManager` to show different states.
+/// References the separate `VoiceAnimation` in `VoiceAnimation.swift`.
+struct TranscriberPopupView: View {
     
-    // Track local animation states
-    @State private var isAnimationActive = false
+    @ObservedObject var manager: PopupWindowManager
+    @ObservedObject var audioRecorder = AudioRecorder.shared
     
     var body: some View {
         ZStack {
-            Group {
-                switch windowManager.currentState {
-                case .recording:
-                    VStack(spacing: 2) {
-                        // Use the new VoiceAnimation instead of ParticleWaveEffect
-                        VoiceAnimation(intensity: audioRecorder.audioLevel)
-                            .frame(width: 150, height: 40)
-                            .padding(.horizontal, 5)
-                        
-                        // Show recording time
-                        if audioRecorder.isRecording {
-                            Text(formatTime(audioRecorder.recordingTime))
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.8))
-                                .padding(.top, 4)
-                        }
-                    }
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 8)
-                
-                case .transcribing:
-                    VStack(spacing: 5) {
-                        // Existing TranscribingAnimation
-                        TranscribingAnimation()
-                            .frame(width: 150, height: 40)
-                            .padding(.horizontal, 5)
-                        
-                        Text("Transcribing...")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.bottom, 5)
-                    }
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 8)
-                
-                case .completed(let text):
-                    // Success UI
-                    Image(systemName: "checkmark.circle.fill")
-                        .resizable()
-                        .frame(width: 25, height: 25)
-                        .foregroundColor(.green)
-                        .padding()
-                
-                case .error(let message):
-                    // Error UI - Show error text
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .resizable()
-                            .frame(width: 16, height: 14)
-                            .foregroundColor(.red)
-                            .padding(.top, 2)
-                        
-                        Text("Error: \(message)")
-                            .font(.system(size: 11))
-                            .foregroundColor(.white)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .onHover { hovering in
-                                if hovering {
-                                    NSCursor.pointingHand.set()
-                                } else {
-                                    NSCursor.arrow.set()
-                                }
-                            }
-                            .help(message)
-                    }
-                    .padding(10)
-                    .frame(width: 160)
-                
-                case .noMicrophone:
-                    // No microphone UI
-                    VStack(spacing: 12) {
-                        HStack {
-                            Spacer()
-                            Button(action: {
-                                windowManager.closePopupWindow()
-                            }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.white.opacity(0.7))
-                                    .padding(4)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .contentShape(Rectangle())
-                        }
-                        .padding(.top, 4)
-                        .padding(.trailing, 4)
-                        
-                        Spacer()
-                        
-                        Image(systemName: "mic.slash.fill")
-                            .resizable()
-                            .frame(width: 32, height: 32)
-                            .foregroundColor(.red)
-                        
-                        Text("No Microphones Found")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.white)
-                        
-                        Button(action: {
-                            windowManager.closePopupWindow()
-                            NSApp.sendAction(#selector(AppDelegate.openSettings), to: nil, from: nil)
-                        }) {
-                            Text("Open Settings")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.black)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Color.white)
-                                .cornerRadius(12)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        Spacer()
-                    }
-                    .frame(width: 240, height: 120)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .background(Color.black.opacity(0.6))
-            .cornerRadius(16)
-            .shadow(color: .black.opacity(0.2), radius: 5)
+            // Main content with corner radius background
+            content
+                .frame(width: manager.currentState.windowSize.width,
+                       height: manager.currentState.windowSize.height)
+                .background(Color.black.opacity(0.6))
+                .cornerRadius(12)
+                .shadow(radius: 4)
             
-            // Close button - positioned in the top-right corner
-            // Only show when not in transcribing state
-            if case .transcribing = windowManager.currentState {
-                // Don't show close button during transcription
+            // Close button for all states except `transcribing`
+            if case .transcribing = manager.currentState {
+                // Hide close button
+            } else if case .noMicrophone = manager.currentState {
+                // noMicrophone view has its own close button
             } else {
-                VStack {
-                    HStack {
-                        Spacer()
-                        Button(action: {
-                            windowManager.closePopupWindow()
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 14))
-                                .foregroundColor(.white.opacity(0.7))
-                                .padding(4)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .contentShape(Rectangle())
-                    }
-                    Spacer()
-                }
-                .padding(4)
+                closeButton
             }
-        }
-        .frame(width: 160, height: windowManager.currentState.windowHeight)
-        .onAppear {
-            isAnimationActive = true
-        }
-        .onDisappear {
-            isAnimationActive = false
         }
     }
     
-    private func formatTime(_ timeInterval: TimeInterval) -> String {
-        let minutes = Int(timeInterval) / 60
-        let seconds = Int(timeInterval) % 60
-        let milliseconds = Int((timeInterval.truncatingRemainder(dividingBy: 1)) * 100)
-        return String(format: "%02d:%02d.%02d", minutes, seconds, milliseconds)
+    @ViewBuilder
+    private var content: some View {
+        switch manager.currentState {
+        case .recording:
+            // Show wave lines from VoiceAnimation.swift
+            VoiceAnimation(intensity: audioRecorder.audioLevel)
+                .frame(width: 150, height: 40)
+            
+        case .transcribing:
+            // Simple spinner
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                .scaleEffect(0.8)
+            
+        case .completed:
+            // Checkmark
+            Image(systemName: "checkmark.circle.fill")
+                .resizable()
+                .frame(width: 28, height: 28)
+                .foregroundColor(.green)
+            
+        case .error(let message):
+            // Expand width, multiline, selectable
+            VStack(spacing: 8) {
+                HStack(alignment: .top) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.red)
+                        .padding(.top, 2)
+                    Text(message)
+                        .foregroundColor(.white)
+                        .font(.system(size: 12))
+                        .textSelection(.enabled)
+                }
+            }
+            .padding()
+            
+        case .noMicrophone:
+            // Larger, custom layout with built-in close
+            noMicrophoneView
+        }
+    }
+    
+    private var noMicrophoneView: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Spacer()
+                Button(action: {
+                    manager.closePopup()
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            Spacer()
+            
+            Image(systemName: "mic.slash.fill")
+                .resizable()
+                .frame(width: 32, height: 32)
+                .foregroundColor(.red)
+            
+            Text("No Microphones Found")
+                .foregroundColor(.white)
+            
+            Button(action: {
+                manager.closePopup()
+                // e.g. open app settings
+                NSApp.sendAction(#selector(AppDelegate.openSettings), to: nil, from: nil)
+            }) {
+                Text("Open Settings")
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.white)
+                    .cornerRadius(8)
+            }
+            Spacer()
+        }
+        .frame(width: manager.currentState.windowSize.width,
+               height: manager.currentState.windowSize.height)
+        .padding()
+    }
+    
+    /// A small close button pinned top-right
+    private var closeButton: some View {
+        VStack {
+            HStack {
+                Spacer()
+                Button(action: {
+                    manager.closePopup()
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(6)
+            }
+            Spacer()
+        }
     }
 }
 
-// Extension to check if the state is an error state and get appropriate height
-extension PopupWindowManager.PopupState {
-    var isError: Bool {
-        if case .error(_) = self {
-            return true
-        }
-        return false
-    }
-    
-    var windowHeight: CGFloat {
+// MARK: - Calculating Window Size
+
+extension TranscriberState {
+    /// We define a fixed width (240 for errors & noMicrophone, 160 for normal),
+    /// and heights that fit each state. Adjust as needed.
+    var windowSize: NSSize {
         switch self {
-        case .error:
-            return 120
         case .recording, .transcribing, .completed:
-            return 60
+            return NSSize(width: 160, height: 60)
+        case .error:
+            return NSSize(width: 240, height: 120)
         case .noMicrophone:
-            return 120
+            return NSSize(width: 240, height: 120)
         }
     }
 }
