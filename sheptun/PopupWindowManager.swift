@@ -158,7 +158,6 @@ class PopupWindowManager: NSObject, ObservableObject {
                     // Copy result to clipboard, simulate Cmd+V, etc.
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(transcription, forType: .string)
-                    
                     self.simulatePasteAndClose()
                     
                 case .failure(let error):
@@ -169,21 +168,21 @@ class PopupWindowManager: NSObject, ObservableObject {
     }
     
     private func simulatePasteAndClose() {
-        // You can tweak the delay to ensure copy finished
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            let source = CGEventSource(stateID: .hidSystemState)
+        // 1) Close the popup immediately
+        closePopup()
+        
+        // 2) Then post Cmd+V after 0.2s so the previously used app has focus
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
+            
             let cmdVDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
             cmdVDown?.flags = .maskCommand
-            cmdVDown?.post(tap: .cghidEventTap)
             
             let cmdVUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
             cmdVUp?.flags = .maskCommand
-            cmdVUp?.post(tap: .cghidEventTap)
             
-            // Close after short delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                self?.closePopup()
-            }
+            cmdVDown?.post(tap: .cgSessionEventTap)
+            cmdVUp?.post(tap: .cgSessionEventTap)
         }
     }
     

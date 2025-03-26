@@ -7,4 +7,10 @@
      \/     \/     \/|__|                   \/ 
 ```
 
+build and run
+```
+make run
+```
+
+
 Made entirely by Sonnet 3.7
