@@ -4,6 +4,7 @@ class GroqAIManager: AIProvider {
     static let shared = GroqAIManager()
     
     private let logger = Logger.shared
+    private let baseURL = "https://api.groq.com/openai/v1"
     var lastError: String?
     
     enum APIError: Error, LocalizedError {
@@ -30,8 +31,29 @@ class GroqAIManager: AIProvider {
     
     // Test if the API key is valid
     func testAPIKey(apiKey: String) async -> Bool {
-        // Simple implementation - just return true for now
-        return true
+        // Try environment variable if empty string is provided
+        let key = apiKey.isEmpty ? getAPIKeyFromEnvironment() ?? apiKey : apiKey
+        
+        guard let url = URL(string: "\(baseURL)/models") else {
+            logger.log("Invalid URL for API key test", level: .error)
+            return false
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.addValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                return httpResponse.statusCode == 200
+            }
+            return false
+        } catch {
+            logger.log("Error testing OpenAI API key: \(error.localizedDescription)", level: .error)
+            return false
+        }
     }
     
     // Implementation of AIProvider protocol
@@ -56,11 +78,11 @@ class GroqAIManager: AIProvider {
         // Prepare curl arguments
         var arguments = [
             "-s",
-            "https://api.groq.com/openai/v1/audio/transcriptions",
+            "\(baseURL)/audio/transcriptions",
             "-H", "Authorization: Bearer \(key)",
             "-F", "model=\(validModel)",
             "-F", "file=@\(audioFileURL.path)",
-            "-F", "response_format=text"
+            "-F", "response_format=json"
         ]
         
         if temperature > 0 {
@@ -84,10 +106,24 @@ class GroqAIManager: AIProvider {
         process.arguments = arguments
         
         logger.log("Executing curl command: curl \(arguments.joined(separator: " "))", level: .debug)
-        
         let outputPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = outputPipe
+        
+        // Define response structures
+        struct ErrorResponse: Decodable {
+            struct ErrorDetail: Decodable {
+                let message: String
+                let type: String?
+                let param: String?
+                let code: String?
+            }
+            let error: ErrorDetail
+        }
+        
+        struct TranscriptionResponse: Decodable {
+            let text: String
+        }
         
         do {
             try process.run()
@@ -95,14 +131,21 @@ class GroqAIManager: AIProvider {
             
             // Read output file
             let outputData = try Data(contentsOf: tempOutputFile)
-            let responseText = String(data: outputData, encoding: .utf8) ?? ""
             
-            if process.terminationStatus == 0 && !responseText.isEmpty {
+            do {
+                // First try to decode as error response
+                if let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: outputData) {
+                    logger.log("API returned error: \(errorResponse.error.message)", level: .error)
+                    return .failure(APIError.requestFailed(statusCode: 400, message: errorResponse.error.message))
+                }
+                
+                // If not error, decode as transcription
+                let response = try JSONDecoder().decode(TranscriptionResponse.self, from: outputData)
                 logger.log("Transcription successful", level: .info)
-                return .success(responseText)
-            } else {
+                return .success(response.text)
+            } catch {
                 let errorOutput = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "Unknown error"
-                logger.log("Curl command failed: \(errorOutput)", level: .error)
+                logger.log("Failed to decode response: \(error)", level: .error)
                 return .failure(APIError.requestFailed(statusCode: Int(process.terminationStatus), message: errorOutput))
             }
         } catch {

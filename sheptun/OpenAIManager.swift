@@ -124,7 +124,7 @@ class OpenAIManager: AIProvider {
         arguments.append("-F")
         arguments.append("temperature=\(temperature)")
         arguments.append("-F")
-        arguments.append("response_format=text")
+        arguments.append("response_format=json")
         
         if !language.isEmpty {
             arguments.append("-F")
@@ -160,16 +160,27 @@ class OpenAIManager: AIProvider {
                 logger.log("curl command failed with status \(status): \(errorMessage)", level: .error)
                 return .failure(APIError.requestFailed(statusCode: Int(status), message: errorMessage))
             }
+            // Read and parse the JSON response
+            guard let responseData = try? Data(contentsOf: URL(fileURLWithPath: outputPath)) else {
+                logger.log("Failed to read response data from file", level: .error)
+                return .failure(APIError.invalidResponse)
+            }
             
-            // Read the response from the file
-            if let transcription = try? String(contentsOfFile: outputPath, encoding: .utf8) {
-                // Clean up the temp file
-                try? FileManager.default.removeItem(atPath: outputPath)
+            // Clean up temp file
+            try? FileManager.default.removeItem(atPath: outputPath)
+            
+            do {
+                // First try to decode as error response
+                if let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: responseData) {
+                    logger.log("API returned error: \(errorResponse.error.message)", level: .error)
+                    return .failure(APIError.serverError(statusCode: 400, responseBody: errorResponse.error.message))
+                }
                 
-                // Return the transcription
-                return .success(transcription.trimmingCharacters(in: .whitespacesAndNewlines))
-            } else {
-                logger.log("Failed to read transcription response from file", level: .error)
+                // If not error, decode as transcription
+                let response = try JSONDecoder().decode(TranscriptionResponse.self, from: responseData)
+                return .success(response.text)
+            } catch {
+                logger.log("Failed to decode response: \(error)", level: .error)
                 return .failure(APIError.invalidResponse)
             }
         } catch {
@@ -206,38 +217,3 @@ class OpenAIManager: AIProvider {
         return "Unknown format, no standard header detected"
     }
 }
-
-// // Extension to get PCM data from AVAudioPCMBuffer
-// extension AVAudioPCMBuffer {
-//     func data() -> Data {
-//         let channelCount = Int(format.channelCount)
-//         let frameCount = Int(frameLength)
-//         let sampleCount = frameCount * channelCount
-//         
-//         switch format.commonFormat {
-//         case .pcmFormatFloat32:
-//             if let floatData = floatChannelData {
-//                 let stride = format.streamDescription.pointee.mBytesPerFrame
-//                 let byteCount = Int(frameLength) * Int(stride)
-//                 return Data(bytes: floatData[0], count: byteCount)
-//             }
-//         case .pcmFormatInt16:
-//             if let int16Data = int16ChannelData {
-//                 let stride = 2 // Int16 = 2 bytes
-//                 let byteCount = sampleCount * stride
-//                 return Data(bytes: int16Data[0], count: byteCount)
-//             }
-//         case .pcmFormatInt32:
-//             if let int32Data = int32ChannelData {
-//                 let stride = 4 // Int32 = 4 bytes
-//                 let byteCount = sampleCount * stride
-//                 return Data(bytes: int32Data[0], count: byteCount)
-//             }
-//         default:
-//             break
-//         }
-//         
-//         // Default - create empty data
-//         return Data()
-//     }
-// } 

@@ -447,20 +447,29 @@ struct RecordingSessionView: View {
                 
                 case .error(let message):
                     // Error UI - Show error text
-                    VStack {
+                    HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .resizable()
-                            .frame(width: 20, height: 18)
+                            .frame(width: 16, height: 14)
                             .foregroundColor(.red)
-                            .padding(.top, 5)
+                            .padding(.top, 2)
                         
                         Text("Error: \(message)")
                             .font(.system(size: 11))
                             .foregroundColor(.white)
                             .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 5)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .onHover { hovering in
+                                if hovering {
+                                    NSCursor.pointingHand.set()
+                                } else {
+                                    NSCursor.arrow.set()
+                                }
+                            }
+                            .help(message)
                     }
+                    .padding(10)
                     .frame(width: 160)
                 
                 case .noMicrophone:
@@ -513,8 +522,8 @@ struct RecordingSessionView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .background(Color.black.opacity(0.7))
-            .cornerRadius(8)
+            .background(Color.black.opacity(0.6))
+            .cornerRadius(16)
             .shadow(color: .black.opacity(0.2), radius: 5)
             
             // Close button - positioned in the top-right corner
@@ -570,7 +579,7 @@ extension PopupWindowManager.PopupState {
     var windowHeight: CGFloat {
         switch self {
         case .error:
-            return 100
+            return 120
         case .recording, .transcribing, .completed:
             return 60
         case .noMicrophone:
