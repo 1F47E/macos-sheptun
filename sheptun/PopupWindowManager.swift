@@ -170,19 +170,32 @@ class PopupWindowManager: NSObject, ObservableObject {
     private func simulatePasteAndClose() {
         // 1) Close the popup immediately
         closePopup()
-        
-        // 2) Then post Cmd+V after 0.2s so the previously used app has focus
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
-            
+        logger.log("Popup closed, scheduling paste event.", level: .debug)
+
+        // 2) Then post Cmd+V after delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self = self else { return }
+            self.logger.log("Attempting to post Cmd+V event.", level: .debug)
+
+            guard let source = CGEventSource(stateID: .combinedSessionState) else {
+                self.logger.log("Failed to create CGEventSource.", level: .error)
+                return
+            }
+
             let cmdVDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
             cmdVDown?.flags = .maskCommand
-            
+
             let cmdVUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
             cmdVUp?.flags = .maskCommand
-            
-            cmdVDown?.post(tap: .cgSessionEventTap)
-            cmdVUp?.post(tap: .cgSessionEventTap)
+
+            // Check if events were created before posting
+            if let downEvent = cmdVDown, let upEvent = cmdVUp {
+                downEvent.post(tap: .cgSessionEventTap)
+                upEvent.post(tap: .cgSessionEventTap)
+                self.logger.log("Cmd+V event posted successfully.", level: .debug)
+            } else {
+                self.logger.log("Failed to create CGEvent for Cmd+V.", level: .error)
+            }
         }
     }
     

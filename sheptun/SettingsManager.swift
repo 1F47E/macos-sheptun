@@ -81,42 +81,64 @@ class SettingsManager: ObservableObject {
             logger.log("No provider selected, defaulting to Groq", level: .info)
         }
         
-        if let savedMicID = defaults.string(forKey: Keys.selectedMicrophoneID) {
-            selectedMicrophoneID = savedMicID
-            logger.log("Loaded saved microphone ID: \(savedMicID)")
-        } else {
-            // Try to get the system default microphone
-            if let defaultMicID = getDefaultSystemMicrophoneID() {
-                selectedMicrophoneID = defaultMicID
-                logger.log("No saved microphone, using system default: \(defaultMicID)")
-            } else if let firstMic = getAvailableMicrophones().first {
-                // Fall back to first available if we can't get the system default
-                selectedMicrophoneID = firstMic.id
-                logger.log("No system default, using first available: \(firstMic.name)")
+        // --- Microphone Selection Logic ---
+        let currentlyAvailableMics = getAvailableMicrophones()
+        logger.log("Available microphones found: \(currentlyAvailableMics.map { "\($0.name) (\($0.id))" })")
+
+        let savedMicID = defaults.string(forKey: Keys.selectedMicrophoneID)
+        var finalMicID: String? = nil
+
+        if let id = savedMicID, !id.isEmpty {
+            logger.log("Found saved microphone ID: \(id)")
+            if currentlyAvailableMics.contains(where: { $0.id == id }) {
+                logger.log("Saved microphone ID \(id) is currently available.")
+                finalMicID = id
             } else {
-                logger.log("No microphones available", level: .warning)
+                logger.log("Saved microphone ID \(id) is no longer available.", level: .warning)
+                // Saved ID is invalid, proceed to default selection
+            }
+        } else {
+            logger.log("No microphone ID found in UserDefaults.")
+            // No saved ID, proceed to default selection
+        }
+
+        // If we don't have a valid saved ID, find a default
+        if finalMicID == nil {
+            logger.log("Attempting to find a default microphone.")
+            if let defaultSystemMicID = getDefaultSystemMicrophoneID(),
+               currentlyAvailableMics.contains(where: { $0.id == defaultSystemMicID }) {
+                logger.log("Using system default microphone: ID \(defaultSystemMicID)")
+                finalMicID = defaultSystemMicID
+            } else if let firstMic = currentlyAvailableMics.first {
+                 logger.log("System default microphone not found or unavailable. Using first available: ID \(firstMic.id)")
+                finalMicID = firstMic.id
+            } else {
+                logger.log("No microphones available to select as default.", level: .warning)
             }
         }
+        
+        // Set the @Published property
+        selectedMicrophoneID = finalMicID ?? ""
+        logger.log("Setting selectedMicrophoneID to: '\(selectedMicrophoneID)'")
+        // --- End Microphone Selection Logic ---
         
         if let savedModel = defaults.string(forKey: Keys.transcriptionModel) {
             transcriptionModel = savedModel
             logger.log("Loaded transcription model: \(savedModel)")
         } else {
-            // Set default model based on the selected provider
-            if selectedProvider == "openai" {
-                transcriptionModel = "gpt-4o-mini-transcribe"
-            } else {
-                transcriptionModel = "whisper-large-v3-turbo"
-            }
+            // Set default model based on the selected provider AFTER provider is loaded
+            updateModelForProvider() // This will set the default if needed
             logger.log("Using default transcription model: \(transcriptionModel)")
         }
         
         // Load temperature or use default
         transcriptionTemperature = defaults.double(forKey: Keys.transcriptionTemperature)
-        if transcriptionTemperature == 0.0 {
-            transcriptionTemperature = 0.3 // Default if not set
+        if transcriptionTemperature == 0.0 && defaults.object(forKey: Keys.transcriptionTemperature) == nil { // Check if it was actually 0 or just not set
+            transcriptionTemperature = 0.3 // Default only if not explicitly set
+             logger.log("Transcription temperature not set, using default: \(transcriptionTemperature)")
+        } else {
+             logger.log("Loaded transcription temperature: \(transcriptionTemperature)")
         }
-        logger.log("Loaded transcription temperature: \(transcriptionTemperature)")
     }
     
     // Method to get the default model for the current provider

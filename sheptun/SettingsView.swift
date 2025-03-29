@@ -4,7 +4,7 @@ import AVFoundation
 struct SettingsView: View {
     @StateObject private var settings = SettingsManager.shared
     
-    // Keep track of whether we’re revealing each API key
+    // Keep track of whether we're revealing each API key
     @State private var showOpenAIKey: Bool = false
     @State private var showGroqKey: Bool = false
     
@@ -47,6 +47,7 @@ struct SettingsView: View {
                         .pickerStyle(SegmentedPickerStyle())
                         .onChange(of: settings.selectedProvider) { _ in
                             settings.updateModelForProvider()
+                            apiKeyTestResult = nil // Reset test result on provider change
                             settings.saveSettings()
                         }
                     } header: {
@@ -146,9 +147,9 @@ struct SettingsView: View {
                     Section {
                         if settings.selectedProvider == "openai" {
                             Picker("Model", selection: $settings.transcriptionModel) {
-                                Text("GPT-4o Mini").tag("gpt-4o-mini-transcribe")
-                                Text("GPT-4o").tag("gpt-4o-transcribe")
-                                Text("Whisper").tag("whisper-1")
+                                Text("gpt-4o-mini-transcribe").tag("gpt-4o-mini-transcribe")
+                                Text("gpt-4o-transcribe").tag("gpt-4o-transcribe")
+                                Text("whisper-1").tag("whisper-1")
                             }
                             .pickerStyle(.segmented)
                             .onChange(of: settings.transcriptionModel) { _ in
@@ -156,8 +157,8 @@ struct SettingsView: View {
                             }
                         } else {
                             Picker("Model", selection: $settings.transcriptionModel) {
-                                Text("Whisper Large v3").tag("whisper-large-v3")
-                                Text("Whisper Large v3 Turbo").tag("whisper-large-v3-turbo")
+                                Text("whisper-large-v3").tag("whisper-large-v3")
+                                Text("whisper-large-v3-turbo").tag("whisper-large-v3-turbo")
                             }
                             .pickerStyle(.segmented)
                             .onChange(of: settings.transcriptionModel) { _ in
@@ -238,7 +239,10 @@ struct SettingsView: View {
         }
         .frame(minWidth: 540, minHeight: 520)
         .onAppear {
-            loadMicrophones()
+            // Directly load microphones here
+            availableMicrophones = settings.getAvailableMicrophones()
+            logger.log("Loaded \(availableMicrophones.count) microphones for Picker in SettingsView onAppear")
+
             if !settings.selectedMicrophoneID.isEmpty {
                 startAudioMonitoring(deviceID: settings.selectedMicrophoneID)
             }
@@ -318,22 +322,6 @@ struct SettingsView: View {
                 DispatchQueue.main.async {
                     apiKeyTestResult = .networkError(error.localizedDescription)
                 }
-            }
-        }
-    }
-    
-    private func loadMicrophones() {
-        availableMicrophones = settings.getAvailableMicrophones()
-        logger.log("Loaded \(availableMicrophones.count) microphones")
-        
-        // If no mic selected but we have a system default, choose that
-        if settings.selectedMicrophoneID.isEmpty && !availableMicrophones.isEmpty {
-            if let defaultID = settings.getDefaultSystemMicrophoneID(),
-               availableMicrophones.contains(where: { $0.id == defaultID }) {
-                settings.selectedMicrophoneID = defaultID
-            } else {
-                // fallback to first
-                settings.selectedMicrophoneID = availableMicrophones[0].id
             }
         }
     }
