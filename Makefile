@@ -30,8 +30,8 @@ verbose-build:
 
 # Clean build artifacts
 clean:
-	@echo "Cleaning $(PROJECT_NAME)..."
-	@xcodebuild -project $(PROJECT_FILE) -scheme $(SCHEME) -configuration $(CONFIGURATION) -derivedDataPath $(BUILD_DIR) clean
+	@echo "Cleaning build directory..."
+	@rm -rf build
 
 # Run the application
 run: build

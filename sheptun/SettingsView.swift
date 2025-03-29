@@ -33,160 +33,117 @@ struct SettingsView: View {
     }
     
     var body: some View {
-        VStack {
-            
+        // Use a VStack for more control over layout and spacing
+        VStack(alignment: .leading, spacing: 0) { // Use spacing 0 and manage padding manually
             ScrollView {
-                Form {
-                    // PROVIDER PICKER
-                    Section {
+                // Group content logically with padding and dividers
+                VStack(alignment: .leading, spacing: 15) { // Spacing between groups
+                    
+                    // --- Provider Selection Group ---
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("AI Provider")
+                            .font(.title3) // Slightly larger heading for groups
                         Picker("Provider", selection: $settings.selectedProvider) {
                             Text("OpenAI").tag("openai")
                             Text("Groq").tag("groq")
-                            // If you add new providers later, add them here
                         }
                         .pickerStyle(SegmentedPickerStyle())
-                        .onChange(of: settings.selectedProvider) { _ in
+                        .labelsHidden() // Hide the Picker's label as the title is sufficient
+                        .onChange(of: settings.selectedProvider) { oldValue, newValue in
                             settings.updateModelForProvider()
                             apiKeyTestResult = nil // Reset test result on provider change
                             settings.saveSettings()
                         }
-                    } header: {
-                        Text("Provider")
+                        Text("Select the transcription service provider.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
+                    .padding(.bottom, 10) // Add space before divider
                     
-                    // CREDENTIALS SECTION (OpenAI or Groq)
-                    Section {
+                    Divider()
+                    
+                    // --- API Credentials Group ---
+                    VStack(alignment: .leading, spacing: 12) { // Increased spacing within this group
+                        Text("API Credentials")
+                            .font(.title3)
+                        
+                        // Conditional API Key Input
                         if settings.selectedProvider == "openai" {
-                            // Eye toggle example for OpenAI
-                            HStack {
-                                if showOpenAIKey {
-                                    TextField("OpenAI API Key", text: $openAIKeyInput)
-                                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                                } else {
-                                    SecureField("OpenAI API Key", text: $openAIKeyInput)
-                                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                            apiKeyInputView(
+                                label: "OpenAI API Key",
+                                keyInput: $openAIKeyInput,
+                                showKey: $showOpenAIKey,
+                                saveAction: { newValue in
+                                    settings.openAIKey = newValue
+                                    settings.saveSettings()
                                 }
-                                Button(action: {
-                                    showOpenAIKey.toggle()
-                                }) {
-                                    Image(systemName: showOpenAIKey ? "eye.slash.fill" : "eye.fill")
-                                        .foregroundColor(.gray)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                            .onAppear {
-                                openAIKeyInput = settings.openAIKey
-                            }
-                            .onChange(of: openAIKeyInput) { newValue in
-                                settings.openAIKey = newValue
-                                settings.saveSettings()
-                            }
-                            
+                            )
                         } else if settings.selectedProvider == "groq" {
-                            HStack {
-                                if showGroqKey {
-                                    TextField("", text: $groqKeyInput)
-                                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                                } else {
-                                    SecureField("", text: $groqKeyInput)
-                                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                            apiKeyInputView(
+                                label: "Groq API Key",
+                                keyInput: $groqKeyInput,
+                                showKey: $showGroqKey,
+                                saveAction: { newValue in
+                                    settings.groqKey = newValue
+                                    settings.saveSettings()
                                 }
-                                Button(action: {
-                                    showGroqKey.toggle()
-                                }) {
-                                    Image(systemName: showGroqKey ? "eye.slash.fill" : "eye.fill")
-                                        .foregroundColor(.gray)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                            .onAppear {
-                                groqKeyInput = settings.groqKey
-                            }
-                            .onChange(of: groqKeyInput) { newValue in
-                                settings.groqKey = newValue
-                                settings.saveSettings()
-                            }
-                        }
-
-                                   // TEST API KEY
-                    if !currentAPIKey().isEmpty {
-                        Section {
-                            HStack {
-                                Button("Test API Key") {
-                                    apiKeyTestResult = nil
-                                    testAPIKey()
-                                }
-                                .disabled(isTestingAPIKey)
-                                
-                                if isTestingAPIKey {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle())
-                                } else if let result = apiKeyTestResult {
-                                    switch result {
-                                    case .success:
-                                        Label("API Key is valid", systemImage: "checkmark.circle.fill")
-                                            .foregroundColor(.green)
-                                    case .error(let msg):
-                                        Label("Invalid API Key: \(msg)", systemImage: "xmark.circle.fill")
-                                            .foregroundColor(.red)
-                                    case .networkError(let msg):
-                                        Label("Network error: \(msg)", systemImage: "wifi.slash")
-                                            .foregroundColor(.orange)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    } header: {
-                        Text("API Key")
-                        .padding(.top, 20)
-                    }
-                    
-                    // MODEL & TEMPERATURE
-                    Section {
-                        if settings.selectedProvider == "openai" {
-                            Picker("Model", selection: $settings.transcriptionModel) {
-                                Text("gpt-4o-mini-transcribe").tag("gpt-4o-mini-transcribe")
-                                Text("gpt-4o-transcribe").tag("gpt-4o-transcribe")
-                                Text("whisper-1").tag("whisper-1")
-                            }
-                            .pickerStyle(.segmented)
-                            .onChange(of: settings.transcriptionModel) { _ in
-                                settings.saveSettings()
-                            }
-                        } else {
-                            Picker("Model", selection: $settings.transcriptionModel) {
-                                Text("whisper-large-v3").tag("whisper-large-v3")
-                                Text("whisper-large-v3-turbo").tag("whisper-large-v3-turbo")
-                            }
-                            .pickerStyle(.segmented)
-                            .onChange(of: settings.transcriptionModel) { _ in
-                                settings.saveSettings()
-                            }
+                            )
                         }
                         
-                        // Temperature slider
-                        VStack(alignment: .leading, spacing: 8) {
+                        // Test API Key Controls
+                        apiKeyTestView()
+                        
+                    }
+                    .padding(.vertical, 10) // Add vertical padding around the group
+                    
+                    Divider()
+                    
+                    // --- Model & Temperature Group ---
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Model & Temperature")
+                            .font(.title3)
+                        
+                        // Model Picker
+                        Picker("Model", selection: $settings.transcriptionModel) {
+                            if settings.selectedProvider == "openai" {
+                                Text("GPT-4o Mini").tag("gpt-4o-mini-transcribe")
+                                Text("GPT-4o").tag("gpt-4o-transcribe")
+                                Text("Whisper").tag("whisper-1")
+                            } else {
+                                Text("Whisper Large v3").tag("whisper-large-v3")
+                                Text("Whisper Large v3 Turbo").tag("whisper-large-v3-turbo")
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden() // Hide label, title is sufficient
+                        .onChange(of: settings.transcriptionModel) { oldValue, newValue in
+                            settings.saveSettings()
+                        }
+                        
+                        // Temperature Slider
+                        VStack(alignment: .leading, spacing: 5) { // Reduced spacing for slider elements
                             Text("Temperature: \(settings.transcriptionTemperature, specifier: "%.2f")")
+                                .font(.callout)
                             Slider(value: $settings.transcriptionTemperature, in: 0.0...1.0, step: 0.05) { _ in
                                 settings.saveSettings()
                             }
-                            Text("Lower = more accurate, Higher = more creative")
+                            Text("Lower temperature results in more deterministic output, higher temperature results in more varied output.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true) // Allow text wrapping
                         }
-                        .padding(.top, 8)
-
-
+                        .padding(.top, 5) // Add space above slider
                         
-                    } header: {
-                        Text("Model & Temperature")
-                        .padding(.top, 20)
                     }
+                    .padding(.vertical, 10)
                     
-                    // MICROPHONE SELECTION
-                    Section {
+                    Divider()
+                    
+                    // --- Microphone Group ---
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Audio Input")
+                            .font(.title3)
+                        
                         if availableMicrophones.isEmpty {
                             Text("No microphones found.")
                                 .foregroundColor(.red)
@@ -196,50 +153,29 @@ struct SettingsView: View {
                                     Text(mic.name).tag(mic.id)
                                 }
                             }
-                            .onChange(of: settings.selectedMicrophoneID) { newID in
+                            // Keep the label for Picker for accessibility, but it's visually integrated
+                            .onChange(of: settings.selectedMicrophoneID) { oldValue, newValue in
                                 settings.saveSettings()
-                                if !newID.isEmpty {
-                                    startAudioMonitoring(deviceID: newID)
+                                if !newValue.isEmpty {
+                                    startAudioMonitoring(deviceID: newValue)
                                 } else {
                                     stopAudioMonitoring()
                                 }
                             }
                             
-                            // Audio level meter (horizontal bars)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Microphone Level")
-                                    .font(.subheadline)
-                                HStack(spacing: 2) {
-                                    ForEach(0..<20, id: \.self) { index in
-                                        Rectangle()
-                                            .fill(barColor(for: index))
-                                            .frame(width: 4) // narrower bars
-                                    }
-                                }
-                                .frame(height: 16)
-                                
-                                if let error = audioMonitorError {
-                                    Text("Error: \(error)")
-                                        .foregroundColor(.red)
-                                        .font(.caption)
-                                }
-                            }
-                            .padding(.vertical, 6)
+                            // Audio level meter
+                            microphoneLevelView()
+                                .padding(.top, 5) // Space above meter
                         }
-                    } header: {
-                        Text("Microphone")
-                        .padding(.top, 20)
                     }
+                    .padding(.top, 10) // Only top padding needed for the last group
                     
-         
                 }
-                .padding(.horizontal, 12)
+                .padding() // Add padding around the entire content within ScrollView
             }
-            
         }
-        .frame(minWidth: 540, minHeight: 520)
+        .frame(minWidth: 500, maxWidth: 600, minHeight: 550, maxHeight: 700) // Adjusted frame
         .onAppear {
-            // Directly load microphones here
             availableMicrophones = settings.getAvailableMicrophones()
             logger.log("Loaded \(availableMicrophones.count) microphones for Picker in SettingsView onAppear")
 
@@ -247,13 +183,110 @@ struct SettingsView: View {
                 startAudioMonitoring(deviceID: settings.selectedMicrophoneID)
             }
             
-            // Mirror keys to local state
             openAIKeyInput = settings.openAIKey
             groqKeyInput = settings.groqKey
         }
         .onDisappear {
             stopAudioMonitoring()
             apiTestTask?.cancel()
+        }
+    }
+    
+    // MARK: - Subviews for Cleaner Body
+    
+    @ViewBuilder
+    private func apiKeyInputView(label: String, keyInput: Binding<String>, showKey: Binding<Bool>, saveAction: @escaping (String) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+             // Text(label).font(.callout) // Label is now optional as it's clear from context
+            HStack {
+                if showKey.wrappedValue {
+                    TextField(label, text: keyInput) // Use label as placeholder
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                } else {
+                    SecureField(label, text: keyInput) // Use label as placeholder
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+                Button {
+                    showKey.wrappedValue.toggle()
+                } label: {
+                    Image(systemName: showKey.wrappedValue ? "eye.slash.fill" : "eye.fill")
+                        .foregroundColor(.secondary) // Use secondary color for icons
+                }
+                .buttonStyle(PlainButtonStyle())
+                .contentShape(Rectangle()) // Ensure the button area is tappable
+            }
+            .onAppear { // Ensure local state matches manager on appear
+                 if label.contains("OpenAI") { keyInput.wrappedValue = settings.openAIKey }
+                 if label.contains("Groq") { keyInput.wrappedValue = settings.groqKey }
+            }
+            .onChange(of: keyInput.wrappedValue) { oldValue, newValue in
+                saveAction(newValue) // Call the save action passed in
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func apiKeyTestView() -> some View {
+        // Only show test button if a key exists for the selected provider
+        if !currentAPIKey().isEmpty {
+            HStack {
+                Button("Test API Key") {
+                    apiKeyTestResult = nil
+                    testAPIKey()
+                }
+                .disabled(isTestingAPIKey)
+                
+                // Test Status Indicator
+                if isTestingAPIKey {
+                    ProgressView()
+                        .scaleEffect(0.7) // Make spinner smaller
+                        .frame(width: 20, height: 20) // Control layout space
+                } else if let result = apiKeyTestResult {
+                    switch result {
+                    case .success:
+                        Label("Valid Key", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    case .error(let msg):
+                        Label("Invalid Key", systemImage: "xmark.circle.fill")
+                            .help(msg)
+                            .foregroundColor(Color.red)
+                    case .networkError(let msg):
+                        Label("Network Error", systemImage: "wifi.slash")
+                            .help(msg)
+                            .foregroundColor(Color.orange)
+                    }
+                }
+                Spacer() // Push button and status to the left
+            }
+            .padding(.top, 5) // Space above the test button
+        } else {
+            Text("Enter an API key to enable testing.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.top, 5)
+        }
+    }
+    
+    @ViewBuilder
+    private func microphoneLevelView() -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Microphone Level")
+                .font(.callout)
+            HStack(spacing: 2) {
+                ForEach(0..<20, id: \.self) { index in
+                    Rectangle()
+                        .fill(barColor(for: index))
+                        .frame(width: 4, height: 16) // Explicit height
+                }
+            }
+            .frame(height: 16) // Ensure HStack has the correct height
+            .drawingGroup() // Optimize drawing for frequent updates
+            
+            if let error = audioMonitorError {
+                Text("Monitor Error: \(error)")
+                    .foregroundColor(.red)
+                    .font(.caption)
+            }
         }
     }
     
@@ -270,11 +303,12 @@ struct SettingsView: View {
     private func barColor(for index: Int) -> Color {
         let threshold = Float(index) / 20.0
         if audioLevel >= threshold {
-            if index < 7 {
+            // Adjusted color thresholds for better visual feedback
+            if index < 10 { // Green up to 50%
                 return .green
-            } else if index < 15 {
+            } else if index < 16 { // Yellow up to 80%
                 return .yellow
-            } else {
+            } else { // Red above 80%
                 return .red
             }
         } else {
@@ -306,21 +340,15 @@ struct SettingsView: View {
             let provider = settings.getCurrentAIProvider()
             let aiManager = AIProviderFactory.getProvider(type: provider)
             
-            do {
-                let isValid = await aiManager.testAPIKey(apiKey: key)
-                if Task.isCancelled { return }
-                
-                DispatchQueue.main.async {
-                    if isValid {
-                        apiKeyTestResult = .success
-                    } else {
-                        apiKeyTestResult = .error("Invalid key or insufficient permissions")
-                    }
-                }
-            } catch {
-                if Task.isCancelled { return }
-                DispatchQueue.main.async {
-                    apiKeyTestResult = .networkError(error.localizedDescription)
+            let isValid = await aiManager.testAPIKey(apiKey: key)
+            if Task.isCancelled { return }
+            
+            DispatchQueue.main.async {
+                if isValid {
+                    apiKeyTestResult = .success
+                } else {
+                    // If the key is invalid OR there was an internal (e.g., network) error handled by testAPIKey
+                    apiKeyTestResult = .error("Invalid key or connection issue")
                 }
             }
         }
@@ -334,7 +362,8 @@ struct SettingsView: View {
             audioMonitor?.startMonitoring(
                 levelUpdateHandler: { level in
                     DispatchQueue.main.async {
-                        self.audioLevel = level
+                        // Smooth the audio level updates slightly
+                         self.audioLevel = (self.audioLevel * 0.7) + (level * 0.3)
                         self.audioMonitorError = nil
                     }
                 },
@@ -346,6 +375,7 @@ struct SettingsView: View {
                 }
             )
         } else {
+             logger.log("Failed to start audio monitoring: Invalid device ID format '\(deviceID)'", level: .error)
             audioMonitorError = "Invalid device ID format"
         }
     }
@@ -353,5 +383,9 @@ struct SettingsView: View {
     private func stopAudioMonitoring() {
         audioMonitor?.stopMonitoring()
         audioMonitor = nil
+         // Reset level visually when stopping
+         DispatchQueue.main.async {
+            self.audioLevel = 0
+         }
     }
 }
