@@ -37,7 +37,7 @@ clean:
 run: build
 	@echo "Running $(PROJECT_NAME)..."
 	@killall "$(PROJECT_NAME)" 2>/dev/null || true
-	@open $(BUILD_DIR)/Build/Products/$(CONFIGURATION)/$(PROJECT_NAME).app
+	@open -a $(BUILD_DIR)/Build/Products/$(CONFIGURATION)/$(PROJECT_NAME).app
 
 # Show project schemes
 schemes:

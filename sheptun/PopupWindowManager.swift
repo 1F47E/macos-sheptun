@@ -8,7 +8,7 @@
 import Cocoa
 import SwiftUI
 import Foundation
-import GRDB // Make sure to add this package dependency!
+// import GRDB // Make sure to add this package dependency!
 import AVFoundation // For AVAudioPlayer later
 
 /// Represents the various states of our floating popup
@@ -159,6 +159,8 @@ class PopupWindowManager: NSObject, ObservableObject {
                 switch result {
                 case .success(let transcription):
                     // --- History Saving START ---
+                    // TODO: Re-enable after adding GRDB dependency
+                    /*
                     Task { // Run saving in a separate Task to not block UI updates
                         do {
                             let persistentURL = try await DatabaseManager.shared.saveAudioFile(recordedFileURL)
@@ -176,6 +178,7 @@ class PopupWindowManager: NSObject, ObservableObject {
                             // Decide how to handle this - maybe show a non-blocking error?
                         }
                     }
+                    */
                     // --- History Saving END ---
 
                     // Copy result to clipboard, simulate Cmd+V, etc.
@@ -512,8 +515,10 @@ extension TranscriberState {
     }
 }
 
+// TODO: Re-enable after adding GRDB dependency
+/*
 // Defines the structure for a single history record
-struct HistoryItem: Identifiable, Codable, FetchableRecord, PersistableRecord {
+struct HistoryItem: Identifiable, Codable { // FetchableRecord, PersistableRecord {
     var id: Int64? // Primary key, auto-incremented by the database
     var timestamp: Date // When the recording was made
     var audioFilePath: String // Path to the saved audio file
@@ -538,7 +543,7 @@ struct HistoryItem: Identifiable, Codable, FetchableRecord, PersistableRecord {
 class DatabaseManager {
     static let shared = DatabaseManager()
     private let logger = Logger.shared
-    private var dbQueue: DatabaseQueue!
+    // private var dbQueue: DatabaseQueue!
 
     private init() {
         setupDatabase()
@@ -552,11 +557,12 @@ class DatabaseManager {
                 .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
                 .appendingPathComponent("sheptun.sqlite")
 
-            dbQueue = try DatabaseQueue(path: databaseURL.path)
+            // TODO: Re-enable after adding GRDB dependency
+            // dbQueue = try DatabaseQueue(path: databaseURL.path)
             logger.log("Database queue initialized at: \(databaseURL.path)", level: .info)
 
             // Run migrations to create tables if they don't exist
-            try runMigrations()
+            // try runMigrations()
 
         } catch {
             logger.log("Failed to initialize database: \(error.localizedDescription)", level: .critical)
@@ -566,6 +572,8 @@ class DatabaseManager {
     }
 
     private func runMigrations() throws {
+        // TODO: Re-enable after adding GRDB dependency
+        /*
         var migrator = DatabaseMigrator()
 
         // v1: Create the initial historyItem table
@@ -583,6 +591,7 @@ class DatabaseManager {
 
         // Apply migrations
         try migrator.migrate(dbQueue)
+        */
         logger.log("Database migrations completed successfully.", level: .info)
     }
 
@@ -621,24 +630,33 @@ class DatabaseManager {
 
     /// Saves a HistoryItem record to the database.
     func saveHistoryItem(item: HistoryItem) async throws {
+        // TODO: Re-enable after adding GRDB dependency
+        /*
         try await dbQueue.write { db in
             var itemToSave = item // Make mutable copy
             try itemToSave.save(db)
              logger.log("Saved history item with ID: \(itemToSave.id ?? -1)", level: .debug)
         }
+        */
     }
 
     /// Fetches all history items, ordered by timestamp descending.
     func fetchHistoryItems() async throws -> [HistoryItem] {
+        // TODO: Re-enable after adding GRDB dependency
+        /*
         try await dbQueue.read { db in
             try HistoryItem
                 .order(HistoryItem.Columns.timestamp.desc)
                 .fetchAll(db)
         }
+        */
+        return []
     }
 
      /// Deletes a specific history item and its associated audio file.
     func deleteHistoryItem(item: HistoryItem) async throws {
+        // TODO: Re-enable after adding GRDB dependency
+        /*
         let filePath = item.audioFilePath
         try await dbQueue.write { db in
             _ = try item.delete(db) // Delete database record
@@ -652,10 +670,13 @@ class DatabaseManager {
              logger.log("Failed to delete audio file \(filePath): \(error.localizedDescription). DB record was deleted.", level: .warning)
              // Decide if this error needs propagation or just logging
          }
+        */
     }
 
     /// Deletes ALL history items and their associated audio files. Use with caution!
     func deleteAllHistory() async throws {
+        // TODO: Re-enable after adding GRDB dependency
+        /*
         let allItems = try await fetchHistoryItems() // Get paths before deleting records
         try await dbQueue.write { db in
             _ = try HistoryItem.deleteAll(db)
@@ -670,5 +691,7 @@ class DatabaseManager {
             }
         }
          logger.log("Attempted deletion of all associated audio files.", level: .info)
+        */
     }
 }
+*/ // End of DatabaseManager and HistoryItem comment block
