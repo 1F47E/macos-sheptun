@@ -7,6 +7,9 @@
 
 import Cocoa
 import SwiftUI
+import Foundation
+import GRDB // Make sure to add this package dependency!
+import AVFoundation // For AVAudioPlayer later
 
 /// Represents the various states of our floating popup
 enum TranscriberState {
@@ -155,6 +158,26 @@ class PopupWindowManager: NSObject, ObservableObject {
             await MainActor.run {
                 switch result {
                 case .success(let transcription):
+                    // --- History Saving START ---
+                    Task { // Run saving in a separate Task to not block UI updates
+                        do {
+                            let persistentURL = try await DatabaseManager.shared.saveAudioFile(recordedFileURL)
+                            let historyItem = HistoryItem(
+                                timestamp: Date(),
+                                audioFilePath: persistentURL.path,
+                                transcription: transcription
+                            )
+                            try await DatabaseManager.shared.saveHistoryItem(item: historyItem)
+                            self.logger.log("Successfully saved transcription to history.", level: .info)
+                            // Optionally delete the original temp file if desired
+                            // try? FileManager.default.removeItem(at: recordedFileURL)
+                        } catch {
+                            self.logger.error("Failed to save transcription history: \(error.localizedDescription)")
+                            // Decide how to handle this - maybe show a non-blocking error?
+                        }
+                    }
+                    // --- History Saving END ---
+
                     // Copy result to clipboard, simulate Cmd+V, etc.
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(transcription, forType: .string)
@@ -486,5 +509,166 @@ extension TranscriberState {
         case .noMicrophone:
             return NSSize(width: 240, height: 120)
         }
+    }
+}
+
+// Defines the structure for a single history record
+struct HistoryItem: Identifiable, Codable, FetchableRecord, PersistableRecord {
+    var id: Int64? // Primary key, auto-incremented by the database
+    var timestamp: Date // When the recording was made
+    var audioFilePath: String // Path to the saved audio file
+    var transcription: String // The transcription text
+
+    // Standard GRDB setup to map columns and define table name
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let timestamp = Column(CodingKeys.timestamp)
+        static let audioFilePath = Column(CodingKeys.audioFilePath)
+        static let transcription = Column(CodingKeys.transcription)
+    }
+
+    static var databaseTableName = "historyItem"
+
+    // Called by GRDB after a successful insertion
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
+class DatabaseManager {
+    static let shared = DatabaseManager()
+    private let logger = Logger.shared
+    private var dbQueue: DatabaseQueue!
+
+    private init() {
+        setupDatabase()
+    }
+
+    // MARK: - Database Setup
+
+    private func setupDatabase() {
+        do {
+            let databaseURL = try FileManager.default
+                .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                .appendingPathComponent("sheptun.sqlite")
+
+            dbQueue = try DatabaseQueue(path: databaseURL.path)
+            logger.log("Database queue initialized at: \(databaseURL.path)", level: .info)
+
+            // Run migrations to create tables if they don't exist
+            try runMigrations()
+
+        } catch {
+            logger.log("Failed to initialize database: \(error.localizedDescription)", level: .critical)
+            // Consider how to handle this fatal error in a real app
+            fatalError("Database setup failed: \(error)")
+        }
+    }
+
+    private func runMigrations() throws {
+        var migrator = DatabaseMigrator()
+
+        // v1: Create the initial historyItem table
+        migrator.registerMigration("v1_createHistoryItem") { db in
+            try db.create(table: HistoryItem.databaseTableName) { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("timestamp", .datetime).notNull().indexed()
+                t.column("audioFilePath", .text).notNull()
+                t.column("transcription", .text).notNull()
+            }
+        }
+
+        // Add future migrations here if the schema changes
+        // migrator.registerMigration("v2_...") { db in ... }
+
+        // Apply migrations
+        try migrator.migrate(dbQueue)
+        logger.log("Database migrations completed successfully.", level: .info)
+    }
+
+    // MARK: - Audio File Management
+
+    /// Copies the temporary recording file to a persistent location in App Support.
+    /// Returns the URL of the *newly saved* file.
+    func saveAudioFile(_ sourceURL: URL) async throws -> URL {
+        let fileManager = FileManager.default
+        let appSupportDir = try fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let recordingsDir = appSupportDir.appendingPathComponent("Recordings", isDirectory: true)
+
+        // Create Recordings directory if it doesn't exist
+        if !fileManager.fileExists(atPath: recordingsDir.path) {
+            try fileManager.createDirectory(at: recordingsDir, withIntermediateDirectories: true, attributes: nil)
+            logger.log("Created Recordings directory at: \(recordingsDir.path)", level: .info)
+        }
+
+        // Create a unique filename (e.g., using timestamp and UUID)
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let uniqueFilename = "recording_\(timestamp)_\(UUID().uuidString).\(sourceURL.pathExtension)"
+        let destinationURL = recordingsDir.appendingPathComponent(uniqueFilename)
+
+        // Perform the copy
+        do {
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            logger.log("Copied recording from \(sourceURL.path) to \(destinationURL.path)", level: .debug)
+            return destinationURL
+        } catch {
+            logger.log("Failed to copy audio file: \(error.localizedDescription)", level: .error)
+            throw error // Re-throw the error to be handled by the caller
+        }
+    }
+
+    // MARK: - History Item CRUD
+
+    /// Saves a HistoryItem record to the database.
+    func saveHistoryItem(item: HistoryItem) async throws {
+        try await dbQueue.write { db in
+            var itemToSave = item // Make mutable copy
+            try itemToSave.save(db)
+             logger.log("Saved history item with ID: \(itemToSave.id ?? -1)", level: .debug)
+        }
+    }
+
+    /// Fetches all history items, ordered by timestamp descending.
+    func fetchHistoryItems() async throws -> [HistoryItem] {
+        try await dbQueue.read { db in
+            try HistoryItem
+                .order(HistoryItem.Columns.timestamp.desc)
+                .fetchAll(db)
+        }
+    }
+
+     /// Deletes a specific history item and its associated audio file.
+    func deleteHistoryItem(item: HistoryItem) async throws {
+        let filePath = item.audioFilePath
+        try await dbQueue.write { db in
+            _ = try item.delete(db) // Delete database record
+            logger.log("Deleted history item with ID: \(item.id ?? -1) from DB.", level: .debug)
+        }
+        // Delete the audio file after DB record is gone
+        do {
+             try FileManager.default.removeItem(atPath: filePath)
+             logger.log("Deleted audio file: \(filePath)", level: .debug)
+         } catch {
+             logger.log("Failed to delete audio file \(filePath): \(error.localizedDescription). DB record was deleted.", level: .warning)
+             // Decide if this error needs propagation or just logging
+         }
+    }
+
+    /// Deletes ALL history items and their associated audio files. Use with caution!
+    func deleteAllHistory() async throws {
+        let allItems = try await fetchHistoryItems() // Get paths before deleting records
+        try await dbQueue.write { db in
+            _ = try HistoryItem.deleteAll(db)
+             logger.log("Deleted all history items from DB.", level: .info)
+        }
+         // Delete all audio files
+        for item in allItems {
+            do {
+                try FileManager.default.removeItem(atPath: item.audioFilePath)
+            } catch {
+                 logger.log("Failed to delete audio file \(item.audioFilePath) during deleteAll: \(error.localizedDescription)", level: .warning)
+            }
+        }
+         logger.log("Attempted deletion of all associated audio files.", level: .info)
     }
 }
