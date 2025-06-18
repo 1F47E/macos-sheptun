@@ -36,6 +36,13 @@ struct SettingsTabView: View {
                 action: { selectedTab = "recording" }
             )
             
+            TabButton(
+                title: "History",
+                icon: "clock.arrow.circlepath",
+                isSelected: selectedTab == "history",
+                action: { selectedTab = "history" }
+            )
+            
             // About tab hidden as requested
             // TabButton(
             //     title: "About",
@@ -70,6 +77,12 @@ struct SettingsTabView: View {
                 ))
         case "recording":
             RecordingSettingsView()
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
+        case "history":
+            HistoryView()
                 .transition(.asymmetric(
                     insertion: .move(edge: .trailing).combined(with: .opacity),
                     removal: .move(edge: .leading).combined(with: .opacity)

@@ -145,6 +145,9 @@ class PopupWindowManager: NSObject, ObservableObject {
         Task.detached { [weak self] in
             guard let self = self else { return }
             
+            // Add a small delay to ensure the audio file is fully written
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            
             guard let recordedFileURL = self.audioRecorder.getRecordingFileURL() else {
                 await MainActor.run {
                     self.currentState = .error("Recording file not found.")

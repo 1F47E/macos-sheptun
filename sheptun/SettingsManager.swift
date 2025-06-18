@@ -21,6 +21,7 @@ class SettingsManager: ObservableObject {
     @Published var isRecordingAudio = false
     @Published var lastError: String?
     @Published var autoPasteTranscription: Bool = true
+    @Published var enableHistoryStorage: Bool = true
     
     private enum Keys {
         static let hotkeyModifiers = "hotkeyModifiers"
@@ -34,6 +35,7 @@ class SettingsManager: ObservableObject {
         static let selectedProvider = "selectedProvider"
         static let transcriptionLanguage = "transcriptionLanguage"
         static let autoPasteTranscription = "autoPasteTranscription"
+        static let enableHistoryStorage = "enableHistoryStorage"
     }
     
     init() {
@@ -180,6 +182,16 @@ class SettingsManager: ObservableObject {
             defaults.set(true, forKey: Keys.autoPasteTranscription) // Save the default
             logger.log("Auto-paste setting not set, using default: true and saving to UserDefaults")
         }
+        
+        // Load history storage setting
+        if defaults.object(forKey: Keys.enableHistoryStorage) != nil {
+            enableHistoryStorage = defaults.bool(forKey: Keys.enableHistoryStorage)
+            logger.log("Loaded history storage setting: \(enableHistoryStorage)")
+        } else {
+            enableHistoryStorage = true // Default to true
+            defaults.set(true, forKey: Keys.enableHistoryStorage) // Save the default
+            logger.log("History storage setting not set, using default: true and saving to UserDefaults")
+        }
     }
     
     // Method to get the default model for the current provider
@@ -263,6 +275,9 @@ class SettingsManager: ObservableObject {
         
         defaults.set(autoPasteTranscription, forKey: Keys.autoPasteTranscription)
         logger.log("Saved auto-paste setting: \(autoPasteTranscription)")
+        
+        defaults.set(enableHistoryStorage, forKey: Keys.enableHistoryStorage)
+        logger.log("Saved history storage setting: \(enableHistoryStorage)")
     }
     
     // Returns the current selected AIProviderType

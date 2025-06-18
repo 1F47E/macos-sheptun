@@ -43,10 +43,6 @@ struct RecordingSettingsView: View {
                 recordingOptionsSection
                 
                 languageConfigurationSection
-                
-                if !transcriptionHistory.isEmpty {
-                    historySection
-                }
             }
             .padding(24)
         }
@@ -193,23 +189,6 @@ struct RecordingSettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    Divider()
-                    
-                    HStack {
-                        Label("Local History Storage", systemImage: "internaldrive")
-                            .foregroundColor(.secondary)
-                        
-                        Spacer()
-                        
-                        Toggle("", isOn: .constant(true))
-                            .disabled(true)
-                    }
-                    
-                    Text("All transcriptions are stored locally on your Mac. Your data never leaves your device.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding()
             }
@@ -265,35 +244,6 @@ struct RecordingSettingsView: View {
         }
     }
     
-    private var historySection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Recent Transcriptions")
-                    .font(.headline)
-                
-                Spacer()
-                
-                Button("Clear History") {
-                    transcriptionHistory.removeAll()
-                }
-                .buttonStyle(.borderless)
-                .foregroundColor(.secondary)
-            }
-            
-            GroupBox {
-                VStack(spacing: 12) {
-                    ForEach(transcriptionHistory.prefix(5)) { entry in
-                        HistoryRow(entry: entry, onRetry: retryTranscription)
-                        
-                        if entry.id != transcriptionHistory.prefix(5).last?.id {
-                            Divider()
-                        }
-                    }
-                }
-                .padding(8)
-            }
-        }
-    }
     
     private func startTestTranscription() {
         // Check if any microphones are available
@@ -346,6 +296,8 @@ struct RecordingSettingsView: View {
         
         // Transcribe the audio
         Task {
+            // Add a small delay to ensure the audio file is fully written
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
             await transcribeTestRecording(duration: duration)
         }
     }
