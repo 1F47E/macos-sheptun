@@ -16,6 +16,8 @@ all: build
 
 # Build the application
 build:
+	@echo "Updating version info..."
+	@./update_version_info.sh
 	@echo "Building $(PROJECT_NAME)..."
 ifdef XCPRETTY
 	@xcodebuild -project $(PROJECT_FILE) -scheme $(SCHEME) -configuration $(CONFIGURATION) -derivedDataPath $(BUILD_DIR) build | xcpretty -c
@@ -25,6 +27,8 @@ endif
 
 # Build with verbose output and show full errors
 verbose-build:
+	@echo "Updating version info..."
+	@./update_version_info.sh
 	@echo "Building $(PROJECT_NAME) with verbose output..."
 	@xcodebuild -project $(PROJECT_FILE) -scheme $(SCHEME) -configuration $(CONFIGURATION) -derivedDataPath $(BUILD_DIR) build
 

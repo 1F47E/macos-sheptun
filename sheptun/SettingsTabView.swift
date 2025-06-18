@@ -94,9 +94,9 @@ struct TabButton: View {
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 20))
+                    .font(.system(size: 22))
                     .symbolVariant(isSelected ? .fill : .none)
                 
                 Text(title)
@@ -104,8 +104,9 @@ struct TabButton: View {
             }
             .foregroundColor(isSelected ? Color.accentColor : Color.secondary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 4)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
+            .contentShape(Rectangle()) // Makes entire area clickable
             .background(
                 VStack(spacing: 0) {
                     if isSelected {

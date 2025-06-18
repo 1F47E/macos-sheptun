@@ -102,19 +102,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Update microphone status on menu open
         menu.delegate = self
         
-        // Logs
-        menu.addItem(NSMenuItem(title: "Logs", action: #selector(showLogs), keyEquivalent: "l"))
-        
         // Settings
-        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(openSettings), keyEquivalent: ","))
+        
+        // Separator before bottom section
+        menu.addItem(NSMenuItem.separator())
+        
+        // Logs
+        menu.addItem(NSMenuItem(title: "View Logs", action: #selector(showLogs), keyEquivalent: "l"))
+        
+        // Version info - About section
+        let aboutItem = NSMenuItem(title: "About", action: nil, keyEquivalent: "")
+        let aboutSubmenu = NSMenu()
+        
+        // Version info
+        let versionItem = NSMenuItem(title: "Version: \(VersionInfo.versionString)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        aboutSubmenu.addItem(versionItem)
+        
+        // Branch info (if not on main/master)
+        if !["main", "master"].contains(VersionInfo.gitBranch) {
+            let branchItem = NSMenuItem(title: "Branch: \(VersionInfo.gitBranch)", action: nil, keyEquivalent: "")
+            branchItem.isEnabled = false
+            aboutSubmenu.addItem(branchItem)
+        }
+        
+        // Git hash (full)
+        let hashItem = NSMenuItem(title: "Commit: \(VersionInfo.shortHash)", action: nil, keyEquivalent: "")
+        hashItem.isEnabled = false
+        aboutSubmenu.addItem(hashItem)
+        
+        aboutItem.submenu = aboutSubmenu
+        menu.addItem(aboutItem)
         
         // Quit
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         
         statusItem.menu = menu
-        logger.log("Status bar menu configured with Settings, Logs, and Quit options")
+        logger.log("Status bar menu configured with Settings, Logs, About, and Quit options")
     }
     
     // Update the status bar icon based on microphone availability

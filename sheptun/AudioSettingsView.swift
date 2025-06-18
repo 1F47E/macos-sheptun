@@ -59,20 +59,39 @@ struct AudioSettingsView: View {
                         }
                         .padding()
                     } else {
-                        ForEach(availableMicrophones) { mic in
-                            MicrophoneRow(
-                                device: mic,
-                                isSelected: settings.selectedMicrophoneID == mic.id,
-                                action: {
-                                    settings.selectedMicrophoneID = mic.id
-                                    settings.saveSettings()
-                                    startAudioMonitoring(deviceID: mic.id)
+                        HStack {
+                            Image(systemName: "mic")
+                                .font(.body)
+                                .foregroundColor(.secondary)
+                            
+                            Picker("", selection: $settings.selectedMicrophoneID) {
+                                ForEach(availableMicrophones) { mic in
+                                    Text(mic.name)
+                                        .tag(mic.id)
                                 }
-                            )
+                            }
+                            .labelsHidden()
+                            .pickerStyle(MenuPickerStyle())
+                            .onChange(of: settings.selectedMicrophoneID) { _, newValue in
+                                settings.saveSettings()
+                                startAudioMonitoring(deviceID: newValue)
+                                logger.log("Selected microphone changed to: \(newValue)", level: .info)
+                            }
+                        }
+                        .padding()
+                        
+                        if let selectedMic = availableMicrophones.first(where: { $0.id == settings.selectedMicrophoneID }) {
+                            HStack {
+                                Text("Device ID: \(selectedMic.id)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                            .padding(.horizontal)
+                            .padding(.bottom, 8)
                         }
                     }
                 }
-                .padding(8)
             }
         }
     }
@@ -210,48 +229,6 @@ struct AudioSettingsView: View {
     }
 }
 
-struct MicrophoneRow: View {
-    let device: SettingsManager.MicrophoneDevice
-    let isSelected: Bool
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Image(systemName: "mic")
-                    .font(.title2)
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
-                
-                VStack(alignment: .leading) {
-                    Text(device.name)
-                        .font(.body)
-                        .foregroundColor(.primary)
-                    
-                    Text("ID: \(device.id)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.accentColor)
-                }
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
 
 struct AudioWaveformView: View {
     let audioLevel: Float

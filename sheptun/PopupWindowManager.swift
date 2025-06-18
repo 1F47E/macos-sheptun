@@ -213,6 +213,13 @@ class PopupWindowManager: NSObject, ObservableObject {
                     
                 case .failure(let error):
                     self.currentState = .error("Transcription failed: \(error.localizedDescription)")
+                    
+                    // Report to Sentry
+                    SentryManager.shared.captureError(error, context: [
+                        "provider": self.settingsManager.selectedProvider,
+                        "model": self.settingsManager.transcriptionModel,
+                        "microphone": self.settingsManager.selectedMicrophoneID
+                    ])
                 }
             }
         }
@@ -469,43 +476,71 @@ struct TranscriberPopupView: View {
     
     @ViewBuilder
     private var content: some View {
+        VStack(spacing: 8) {
+            // Main content area
+            switch manager.currentState {
+            case .recording:
+                // Clean audio waveform similar to AudioSettingsView
+                CleanAudioWaveform(audioLevel: audioRecorder.audioLevel)
+                    .frame(width: 140, height: 40)
+                
+            case .transcribing:
+                // Simple spinner
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .scaleEffect(0.8)
+                
+            case .completed:
+                // Checkmark
+                Image(systemName: "checkmark.circle.fill")
+                    .resizable()
+                    .frame(width: 28, height: 28)
+                    .foregroundColor(.green)
+                
+            case .error(let message):
+                // Error icon and message
+                VStack(spacing: 8) {
+                    HStack(alignment: .top) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                            .padding(.top, 2)
+                        Text(message)
+                            .foregroundColor(.white)
+                            .font(.system(size: 12))
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(.horizontal)
+                
+            case .noMicrophone:
+                // Microphone error
+                Image(systemName: "mic.slash.fill")
+                    .font(.title2)
+                    .foregroundColor(.red)
+            }
+            
+            // Status text at bottom
+            statusText
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.7))
+                .padding(.bottom, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    @ViewBuilder
+    private var statusText: some View {
         switch manager.currentState {
         case .recording:
-            // Show wave lines from VoiceAnimation.swift
-            VoiceAnimation(intensity: audioRecorder.audioLevel)
-                .frame(width: 150, height: 40)
-            
+            Text("Recording...")
         case .transcribing:
-            // Simple spinner
-            ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                .scaleEffect(0.8)
-            
+            Text("Transcribing...")
         case .completed:
-            // Checkmark
-            Image(systemName: "checkmark.circle.fill")
-                .resizable()
-                .frame(width: 28, height: 28)
-                .foregroundColor(.green)
-            
-        case .error(let message):
-            // Expand width, multiline, selectable
-            VStack(spacing: 8) {
-                HStack(alignment: .top) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
-                        .padding(.top, 2)
-                    Text(message)
-                        .foregroundColor(.white)
-                        .font(.system(size: 12))
-                        .textSelection(.enabled)
-                }
-            }
-            .padding()
-            
+            Text("Done")
+        case .error:
+            Text("Error")
         case .noMicrophone:
-            // Larger, custom layout with built-in close
-            noMicrophoneView
+            Text("No Microphone")
         }
     }
     
@@ -577,11 +612,74 @@ extension TranscriberState {
     var windowSize: NSSize {
         switch self {
         case .recording, .transcribing, .completed:
-            return NSSize(width: 160, height: 60)
+            return NSSize(width: 160, height: 80)  // Increased height for status text
         case .error:
             return NSSize(width: 240, height: 120)
         case .noMicrophone:
-            return NSSize(width: 240, height: 120)
+            return NSSize(width: 160, height: 80)  // Simplified size
+        }
+    }
+}
+
+// MARK: - Clean Audio Waveform
+
+struct CleanAudioWaveform: View {
+    let audioLevel: Float
+    @State private var phase: CGFloat = 0
+    
+    var body: some View {
+        GeometryReader { geometry in
+            Canvas { context, size in
+                let width = size.width
+                let height = size.height
+                let midY = height / 2
+                
+                // Draw a smooth sine wave
+                var path = Path()
+                
+                // Number of wave cycles
+                let frequency: CGFloat = 3.0
+                
+                // Amplitude based on audio level
+                let minAmplitude: CGFloat = 2.0
+                let maxAmplitude: CGFloat = height * 0.4
+                let amplitude = minAmplitude + (maxAmplitude - minAmplitude) * CGFloat(audioLevel)
+                
+                // Draw the wave
+                for x in stride(from: 0, to: width, by: 1) {
+                    let relativeX = x / width
+                    let y = midY + sin((relativeX * frequency * .pi * 2) + phase) * amplitude
+                    
+                    if x == 0 {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+                
+                // Apply gradient stroke
+                let gradient = Gradient(colors: [
+                    Color.green.opacity(0.8),
+                    Color.green,
+                    Color.green.opacity(0.8)
+                ])
+                
+                context.stroke(
+                    path,
+                    with: .linearGradient(
+                        gradient,
+                        startPoint: CGPoint(x: 0, y: midY),
+                        endPoint: CGPoint(x: width, y: midY)
+                    ),
+                    lineWidth: 2
+                )
+            }
+        }
+        .onAppear {
+            // Smooth continuous animation
+            withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
+                phase = .pi * 2
+            }
         }
     }
 }

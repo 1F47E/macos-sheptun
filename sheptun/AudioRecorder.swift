@@ -138,6 +138,12 @@ class AudioRecorder: NSObject, ObservableObject {
             } catch {
                 await MainActor.run {
                     self.logger.log("Audio session error: \(error.localizedDescription)", level: .error)
+                    
+                    // Report to Sentry
+                    SentryManager.shared.captureError(error, context: [
+                        "action": "start_recording",
+                        "microphone_id": capturedMicID
+                    ])
                 }
             }
         }
