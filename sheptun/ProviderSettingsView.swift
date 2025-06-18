@@ -28,8 +28,6 @@ struct ProviderSettingsView: View {
                 apiCredentialsSection
                 
                 modelConfigurationSection
-                
-                languageConfigurationSection
             }
             .padding(24)
         }

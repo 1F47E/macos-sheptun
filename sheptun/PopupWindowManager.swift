@@ -82,6 +82,14 @@ class PopupWindowManager: NSObject, ObservableObject {
             return
         }
         
+        // Check if a microphone is selected
+        if settingsManager.selectedMicrophoneID.isEmpty {
+            logger.log("No microphone selected => show error", level: .warning)
+            currentState = .error("No microphone selected. Please select a microphone in Settings.")
+            showWindowAtMousePointer()
+            return
+        }
+        
         // Check mic permission
         if !audioRecorder.checkMicrophonePermission() {
             logger.log("Mic permission not granted => requesting...", level: .warning)

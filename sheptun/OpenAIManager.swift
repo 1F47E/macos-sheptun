@@ -107,6 +107,8 @@ class OpenAIManager: AIProvider {
         
         let startTime = Date()
         logger.log("Starting audio transcription with curl using model: \(model)", level: .info)
+        logger.log("Audio file path: \(audioFileURL.path)", level: .debug)
+        logger.log("File exists: \(FileManager.default.fileExists(atPath: audioFileURL.path))", level: .debug)
         
         let tempDir = FileManager.default.temporaryDirectory.path
         let outputPath = "\(tempDir)/transcription_response.txt"
@@ -118,8 +120,6 @@ class OpenAIManager: AIProvider {
         arguments.append("https://api.openai.com/v1/audio/transcriptions")
         arguments.append("-H")
         arguments.append("Authorization: Bearer \(key)")
-        arguments.append("-H")
-        arguments.append("Content-Type: multipart/form-data")
         arguments.append("-F")
         arguments.append("model=\(model)")
         arguments.append("-F")
@@ -136,6 +136,12 @@ class OpenAIManager: AIProvider {
         arguments.append("file=@\(audioFileURL.path)")
         arguments.append("-o")
         arguments.append(outputPath)
+        
+        // Log the curl command for debugging (masking the API key)
+        let maskedArgs = arguments.map { arg in
+            arg.contains("Bearer") ? "Authorization: Bearer [MASKED]" : arg
+        }
+        logger.log("Curl command: curl \(maskedArgs.joined(separator: " "))", level: .debug)
         
         // Use Process to run curl
         let process = Process()
