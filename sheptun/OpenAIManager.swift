@@ -127,7 +127,7 @@ class OpenAIManager: AIProvider {
         arguments.append("-F")
         arguments.append("response_format=json")
         
-        if !language.isEmpty {
+        if !language.isEmpty && language != "auto" {
             arguments.append("-F")
             arguments.append("language=\(language)")
         }

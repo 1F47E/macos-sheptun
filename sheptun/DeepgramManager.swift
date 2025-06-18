@@ -106,11 +106,14 @@ class DeepgramManager: AIProvider {
         var urlComponents = URLComponents(string: "\(baseURL)/listen")!
         urlComponents.queryItems = [
             URLQueryItem(name: "model", value: validModel),
-            URLQueryItem(name: "smart_format", value: "true"),
-            URLQueryItem(name: "detect_language", value: "true")
+            URLQueryItem(name: "smart_format", value: "true")
         ]
         
-        if !language.isEmpty && language != "en" {
+        if language == "auto" || language.isEmpty {
+            // Use auto-detection
+            urlComponents.queryItems?.append(URLQueryItem(name: "detect_language", value: "true"))
+        } else {
+            // Use specific language
             urlComponents.queryItems?.append(URLQueryItem(name: "language", value: language))
         }
         

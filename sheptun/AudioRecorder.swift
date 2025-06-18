@@ -50,17 +50,16 @@ class AudioRecorder: NSObject, ObservableObject {
             do {
                 // Create a URL for the audio recording
                 let tempDir = NSTemporaryDirectory()
-                recordingFileURL = URL(fileURLWithPath: tempDir).appendingPathComponent("temp_recording.wav")
+                recordingFileURL = URL(fileURLWithPath: tempDir).appendingPathComponent("temp_recording.m4a")
                 
-                // Configure audio recording settings for better API compatibility
-                // Using WAV format which is widely supported by all transcription APIs
+                // Configure audio recording settings for optimal compression and API compatibility
+                // Using M4A (AAC) format which is supported by all providers and offers good compression
                 let recordSettings: [String: Any] = [
-                    AVFormatIDKey: Int(kAudioFormatLinearPCM),
+                    AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
                     AVSampleRateKey: 16000,  // 16kHz is optimal for speech recognition
                     AVNumberOfChannelsKey: 1,
-                    AVLinearPCMBitDepthKey: 16,
-                    AVLinearPCMIsBigEndianKey: false,
-                    AVLinearPCMIsFloatKey: false
+                    AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,  // Good balance of quality and size
+                    AVEncoderBitRateKey: 32000  // 32kbps for good quality speech at small file size
                 ]
                 
                 // Try to set the selected microphone device

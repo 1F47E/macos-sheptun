@@ -120,14 +120,21 @@ struct RecordingSettingsView: View {
                             }
                         }) {
                             HStack {
-                                Image(systemName: isRecordingTest ? "stop.circle" : "mic.badge.plus")
-                                    .symbolVariant(isRecordingTest ? .fill : .none)
-                                Text(isRecordingTest ? "Stop Recording" : "Start Test")
+                                if isTranscribing {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Image(systemName: isRecordingTest ? "stop.circle" : "mic.badge.plus")
+                                        .symbolVariant(isRecordingTest ? .fill : .none)
+                                }
+                                
+                                Text(isTranscribing ? "Processing..." : 
+                                     isRecordingTest ? "Stop Recording" : "Start Test")
                             }
                         }
                         .controlSize(.large)
                         .buttonStyle(.borderedProminent)
-                        .disabled((isTranscribing || settings.getCurrentAPIKey().isEmpty) && !isRecordingTest)
+                        .disabled(isTranscribing || (settings.getCurrentAPIKey().isEmpty && !isRecordingTest))
                         
                         if isRecordingTest {
                             HStack(spacing: 8) {
@@ -233,6 +240,9 @@ struct RecordingSettingsView: View {
     }
     
     private func startTestTranscription() {
+        // Provide immediate haptic feedback
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        
         isRecordingTest = true
         testResult = nil
         recordingStartTime = Date()
@@ -242,8 +252,15 @@ struct RecordingSettingsView: View {
     }
     
     private func stopTestTranscription() {
-        // Stop recording
+        // Provide immediate haptic feedback
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        
+        // Stop recording immediately
         audioRecorder.stopRecording()
+        
+        // Update UI state immediately to show we're processing
+        isRecordingTest = false
+        isTranscribing = true
         
         // Calculate duration
         let duration = Date().timeIntervalSince(recordingStartTime ?? Date())
@@ -269,10 +286,7 @@ struct RecordingSettingsView: View {
             return
         }
         
-        // Show transcribing state
-        DispatchQueue.main.async {
-            self.isTranscribing = true
-        }
+        // Transcribing state already set in stopTestTranscription()
         
         // Get AI provider and transcribe
         let provider = settings.getCurrentAIProvider()
@@ -284,7 +298,7 @@ struct RecordingSettingsView: View {
             apiKey: apiKey,
             model: settings.transcriptionModel,
             temperature: settings.transcriptionTemperature,
-            language: "en"
+            language: settings.transcriptionLanguage
         )
         
         DispatchQueue.main.async {

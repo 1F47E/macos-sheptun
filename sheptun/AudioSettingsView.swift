@@ -166,7 +166,7 @@ struct AudioSettingsView: View {
                         Label("Format", systemImage: "doc.badge.waveform")
                             .foregroundColor(.secondary)
                         Spacer()
-                        Text("WAV (16-bit PCM)")
+                        Text("M4A (AAC 32kbps)")
                             .font(.system(.body, design: .monospaced))
                     }
                     

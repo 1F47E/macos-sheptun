@@ -90,7 +90,7 @@ class GroqAIManager: AIProvider {
         arguments.append("-F")
         arguments.append("temperature=\(TEMPERATURE)")
         
-        if !language.isEmpty {
+        if !language.isEmpty && language != "auto" {
             arguments.append("-F")
             arguments.append("language=\(language)")
         }

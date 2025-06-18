@@ -17,6 +17,7 @@ class SettingsManager: ObservableObject {
     @Published var transcriptionModel: String = "whisper-large-v3-turbo"
     @Published var transcriptionTemperature: Double = 0.3
     @Published var selectedProvider: String = "groq"
+    @Published var transcriptionLanguage: String = "auto"
     @Published var isRecordingAudio = false
     @Published var lastError: String?
     @Published var autoPasteTranscription: Bool = true
@@ -31,6 +32,7 @@ class SettingsManager: ObservableObject {
         static let transcriptionModel = "transcriptionModel"
         static let transcriptionTemperature = "transcriptionTemperature"
         static let selectedProvider = "selectedProvider"
+        static let transcriptionLanguage = "transcriptionLanguage"
         static let autoPasteTranscription = "autoPasteTranscription"
     }
     
@@ -159,6 +161,16 @@ class SettingsManager: ObservableObject {
              logger.log("Loaded transcription temperature: \(transcriptionTemperature)")
         }
         
+        // Load transcription language setting
+        if let savedLanguage = defaults.string(forKey: Keys.transcriptionLanguage) {
+            transcriptionLanguage = savedLanguage
+            logger.log("Loaded transcription language: \(transcriptionLanguage)")
+        } else {
+            transcriptionLanguage = "auto" // Default to auto-detect
+            defaults.set("auto", forKey: Keys.transcriptionLanguage) // Save the default
+            logger.log("Transcription language not set, using default: auto and saving to UserDefaults")
+        }
+        
         // Load auto-paste setting
         if defaults.object(forKey: Keys.autoPasteTranscription) != nil {
             autoPasteTranscription = defaults.bool(forKey: Keys.autoPasteTranscription)
@@ -245,6 +257,9 @@ class SettingsManager: ObservableObject {
         
         defaults.set(transcriptionTemperature, forKey: Keys.transcriptionTemperature)
         logger.log("Saved transcription temperature: \(transcriptionTemperature)")
+        
+        defaults.set(transcriptionLanguage, forKey: Keys.transcriptionLanguage)
+        logger.log("Saved transcription language: \(transcriptionLanguage)")
         
         defaults.set(autoPasteTranscription, forKey: Keys.autoPasteTranscription)
         logger.log("Saved auto-paste setting: \(autoPasteTranscription)")

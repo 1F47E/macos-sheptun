@@ -28,6 +28,8 @@ struct ProviderSettingsView: View {
                 apiCredentialsSection
                 
                 modelConfigurationSection
+                
+                languageConfigurationSection
             }
             .padding(24)
         }
@@ -176,6 +178,55 @@ struct ProviderSettingsView: View {
                     .onChange(of: settings.transcriptionModel) { _, _ in
                         settings.saveSettings()
                     }
+                }
+                .padding(12)
+            }
+        }
+    }
+    
+    private var languageConfigurationSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Language Configuration")
+                .font(.headline)
+            
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Transcription Language")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    Picker("", selection: $settings.transcriptionLanguage) {
+                        Text("Auto-detect").tag("auto")
+                        Text("English").tag("en")
+                        Text("Spanish").tag("es")
+                        Text("French").tag("fr")
+                        Text("German").tag("de")
+                        Text("Italian").tag("it")
+                        Text("Portuguese").tag("pt")
+                        Text("Russian").tag("ru")
+                        Text("Japanese").tag("ja")
+                        Text("Korean").tag("ko")
+                        Text("Chinese (Mandarin)").tag("zh")
+                        Text("Arabic").tag("ar")
+                        Text("Hindi").tag("hi")
+                        Text("Dutch").tag("nl")
+                        Text("Polish").tag("pl")
+                        Text("Swedish").tag("sv")
+                        Text("Norwegian").tag("no")
+                        Text("Danish").tag("da")
+                        Text("Finnish").tag("fi")
+                        Text("Turkish").tag("tr")
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: settings.transcriptionLanguage) { _, _ in
+                        settings.saveSettings()
+                    }
+                    
+                    Text("Select the language of your audio for better transcription accuracy. Auto-detect works well for most cases.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 4)
                 }
                 .padding(12)
             }

@@ -8,8 +8,8 @@
 import Foundation
 
 struct VersionInfo {
-    static let gitHash: String = "3fa4a95f1fefdb359a9a70414e25167b4859cb48"
-    static let buildDate: String = "2025-06-18 15:29"
+    static let gitHash: String = "421fb0f0ec2c8909cc17d28e77a62cba6d77ee91"
+    static let buildDate: String = "2025-06-18 16:38"
     static let gitBranch: String = "v0.2"
     static let shortHash: String = {
         let hash = gitHash

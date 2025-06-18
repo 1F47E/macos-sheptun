@@ -152,7 +152,7 @@ class PopupWindowManager: NSObject, ObservableObject {
                 apiKey: apiKey,
                 model: self.settingsManager.transcriptionModel,
                 temperature: self.settingsManager.transcriptionTemperature,
-                language: "en"
+                language: self.settingsManager.transcriptionLanguage
             )
             
             await MainActor.run {
