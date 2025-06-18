@@ -181,9 +181,18 @@ class PopupWindowManager: NSObject, ObservableObject {
                     */
                     // --- History Saving END ---
 
-                    // Copy result to clipboard, simulate Cmd+V, etc.
+                    // Copy result to clipboard
+                    self.logger.log("Copying transcription to clipboard", level: .info)
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(transcription, forType: .string)
+                    let success = NSPasteboard.general.setString(transcription, forType: .string)
+                    self.logger.log("Clipboard setString result: \(success)", level: .info)
+                    
+                    // Verify clipboard content
+                    if let clipboardCheck = NSPasteboard.general.string(forType: .string) {
+                        self.logger.log("Verified clipboard content (first 50 chars): \(String(clipboardCheck.prefix(50)))...", level: .info)
+                    } else {
+                        self.logger.log("ERROR: Failed to verify clipboard content!", level: .error)
+                    }
                     
                     // Post notification for test result tracking
                     NotificationCenter.default.post(
@@ -193,9 +202,12 @@ class PopupWindowManager: NSObject, ObservableObject {
                     )
                     
                     // Only auto-paste if enabled in settings
+                    self.logger.log("Checking auto-paste setting: \(self.settingsManager.autoPasteTranscription)", level: .info)
                     if self.settingsManager.autoPasteTranscription {
+                        self.logger.log("Auto-paste is enabled, calling simulatePasteAndClose()", level: .info)
                         self.simulatePasteAndClose()
                     } else {
+                        self.logger.log("Auto-paste is disabled, just closing popup", level: .info)
                         self.closePopup()
                     }
                     
@@ -207,20 +219,49 @@ class PopupWindowManager: NSObject, ObservableObject {
     }
     
     private func simulatePasteAndClose() {
+        logger.log("simulatePasteAndClose() called", level: .info)
+        
         // 1) Close the popup immediately
         closePopup()
-        logger.log("Popup closed, scheduling paste event.", level: .debug)
+        logger.log("Popup closed, scheduling paste event after 0.5s delay", level: .info)
 
-        // 2) Then post Cmd+V after delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self = self else { return }
-            self.logger.log("Attempting to post Cmd+V event.", level: .debug)
-
-            guard let source = CGEventSource(stateID: .combinedSessionState) else {
-                self.logger.log("Failed to create CGEventSource.", level: .error)
+        // 2) Then post Cmd+V after delay - increased delay for reliability
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { 
+                Logger.shared.log("Self was deallocated before paste event", level: .error)
+                return 
+            }
+            
+            self.logger.log("Timer fired, attempting to post Cmd+V event", level: .info)
+            
+            // Check if we have accessibility permissions
+            let accessibilityEnabled = AXIsProcessTrusted()
+            self.logger.log("Accessibility permissions: \(accessibilityEnabled ? "GRANTED" : "NOT GRANTED")", level: .info)
+            
+            if !accessibilityEnabled {
+                self.logger.log("ERROR: App needs accessibility permissions to paste. Opening System Settings...", level: .error)
+                // Open accessibility settings
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                    NSWorkspace.shared.open(url)
+                }
                 return
             }
+            
+            // Log current clipboard content
+            if let clipboardContent = NSPasteboard.general.string(forType: .string) {
+                self.logger.log("Clipboard content (first 50 chars): \(String(clipboardContent.prefix(50)))...", level: .info)
+            } else {
+                self.logger.log("WARNING: Clipboard is empty!", level: .warning)
+            }
 
+            guard let source = CGEventSource(stateID: .combinedSessionState) else {
+                self.logger.log("Failed to create CGEventSource for Cmd+V", level: .error)
+                return
+            }
+            
+            self.logger.log("CGEventSource created successfully", level: .debug)
+
+            // Virtual key code 0x09 is 'V'
             let cmdVDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
             cmdVDown?.flags = .maskCommand
 
@@ -229,11 +270,28 @@ class PopupWindowManager: NSObject, ObservableObject {
 
             // Check if events were created before posting
             if let downEvent = cmdVDown, let upEvent = cmdVUp {
-                downEvent.post(tap: .cgSessionEventTap)
-                upEvent.post(tap: .cgSessionEventTap)
-                self.logger.log("Cmd+V event posted successfully.", level: .debug)
+                self.logger.log("CGEvents created successfully, posting Cmd+V", level: .info)
+                
+                // Try different event tap locations
+                let tapLocations: [CGEventTapLocation] = [.cgSessionEventTap, .cghidEventTap, .cgAnnotatedSessionEventTap]
+                var posted = false
+                
+                for location in tapLocations {
+                    self.logger.log("Trying to post to tap location: \(location.rawValue)", level: .debug)
+                    downEvent.post(tap: location)
+                    Thread.sleep(forTimeInterval: 0.01) // Small delay between key down and up
+                    upEvent.post(tap: location)
+                    posted = true
+                    break // Use first location that works
+                }
+                
+                if posted {
+                    self.logger.log("Cmd+V events posted successfully", level: .info)
+                } else {
+                    self.logger.log("Failed to post Cmd+V events to any tap location", level: .error)
+                }
             } else {
-                self.logger.log("Failed to create CGEvent for Cmd+V.", level: .error)
+                self.logger.log("Failed to create CGEvent for Cmd+V - events are nil", level: .error)
             }
         }
     }

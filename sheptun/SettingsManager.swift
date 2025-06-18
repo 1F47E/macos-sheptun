@@ -165,7 +165,8 @@ class SettingsManager: ObservableObject {
             logger.log("Loaded auto-paste setting: \(autoPasteTranscription)")
         } else {
             autoPasteTranscription = true // Default to true
-            logger.log("Auto-paste setting not set, using default: true")
+            defaults.set(true, forKey: Keys.autoPasteTranscription) // Save the default
+            logger.log("Auto-paste setting not set, using default: true and saving to UserDefaults")
         }
     }
     

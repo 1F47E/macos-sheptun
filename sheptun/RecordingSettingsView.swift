@@ -183,7 +183,7 @@ struct RecordingSettingsView: View {
                     Divider()
                     
                     HStack {
-                        Label("Save History", systemImage: "clock.arrow.circlepath")
+                        Label("Local History Storage", systemImage: "internaldrive")
                             .foregroundColor(.secondary)
                         
                         Spacer()
@@ -192,7 +192,7 @@ struct RecordingSettingsView: View {
                             .disabled(true)
                     }
                     
-                    Text("Transcription history is automatically saved to the database")
+                    Text("All transcriptions are stored locally on your Mac. Your data never leaves your device.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
