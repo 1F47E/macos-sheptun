@@ -5,6 +5,7 @@ class GroqAIManager: AIProvider {
     
     private let logger = Logger.shared
     private let baseURL = "https://api.groq.com/openai/v1"
+    private let TEMPERATURE: Double = 0.25  // Fixed temperature for consistent transcriptions
     var lastError: String?
     
     enum APIError: Error, LocalizedError {
@@ -85,10 +86,9 @@ class GroqAIManager: AIProvider {
             "-F", "response_format=json"
         ]
         
-        if temperature > 0 {
-            arguments.append("-F")
-            arguments.append("temperature=\(temperature)")
-        }
+        // Always use fixed temperature
+        arguments.append("-F")
+        arguments.append("temperature=\(TEMPERATURE)")
         
         if !language.isEmpty {
             arguments.append("-F")

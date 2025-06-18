@@ -5,6 +5,7 @@ class DeepgramManager: AIProvider {
     
     private let logger = Logger.shared
     private let baseURL = "https://api.deepgram.com/v1"
+    private let TEMPERATURE: Double = 0.25  // Fixed temperature for consistent transcriptions
     var lastError: String?
     
     enum APIError: Error, LocalizedError {

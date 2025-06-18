@@ -141,26 +141,6 @@ struct ProviderSettingsView: View {
                             }
                         )
                     }
-                    
-                    if !currentAPIKey().isEmpty {
-                        HStack {
-                            Button(action: testAPIKey) {
-                                HStack(spacing: 6) {
-                                    if isTestingAPIKey {
-                                        ProgressView()
-                                            .scaleEffect(0.8)
-                                            .frame(width: 16, height: 16)
-                                    } else {
-                                        Image(systemName: "checkmark.shield")
-                                    }
-                                    Text("Test Connection")
-                                }
-                            }
-                            .disabled(isTestingAPIKey)
-                            
-                            Spacer()
-                        }
-                    }
                 }
                 .padding(12)
             }
@@ -173,69 +153,28 @@ struct ProviderSettingsView: View {
                 .font(.headline)
             
             GroupBox {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Model")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        
-                        Picker("", selection: $settings.transcriptionModel) {
-                            if settings.selectedProvider == "openai" {
-                                Text("GPT-4o Mini").tag("gpt-4o-mini-transcribe")
-                                Text("GPT-4o").tag("gpt-4o-transcribe")
-                                Text("Whisper").tag("whisper-1")
-                            } else if settings.selectedProvider == "groq" {
-                                Text("Whisper Large v3").tag("whisper-large-v3")
-                                Text("Whisper Large v3 Turbo").tag("whisper-large-v3-turbo")
-                            } else if settings.selectedProvider == "deepgram" {
-                                Text("Nova 3").tag("nova-3")
-                                Text("Nova 2").tag("nova-2")
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .onChange(of: settings.transcriptionModel) { _, _ in
-                            settings.saveSettings()
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Model")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    Picker("", selection: $settings.transcriptionModel) {
+                        if settings.selectedProvider == "openai" {
+                            Text("GPT-4o Mini").tag("gpt-4o-mini-transcribe")
+                            Text("GPT-4o").tag("gpt-4o-transcribe")
+                            Text("Whisper").tag("whisper-1")
+                        } else if settings.selectedProvider == "groq" {
+                            Text("Whisper Large v3").tag("whisper-large-v3")
+                            Text("Whisper Large v3 Turbo").tag("whisper-large-v3-turbo")
+                        } else if settings.selectedProvider == "deepgram" {
+                            Text("Nova 3").tag("nova-3")
+                            Text("Nova 2").tag("nova-2")
                         }
                     }
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Temperature")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                            
-                            Spacer()
-                            
-                            Text(String(format: "%.2f", settings.transcriptionTemperature))
-                                .font(.system(.body, design: .monospaced))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(Color.accentColor.opacity(0.1))
-                                .cornerRadius(4)
-                        }
-                        
-                        HStack(spacing: 12) {
-                            Image(systemName: "snowflake")
-                                .foregroundColor(.blue)
-                                .help("More deterministic")
-                            
-                            Slider(
-                                value: $settings.transcriptionTemperature,
-                                in: 0.0...1.0,
-                                step: 0.05
-                            ) { _ in
-                                settings.saveSettings()
-                            }
-                            
-                            Image(systemName: "flame")
-                                .foregroundColor(.orange)
-                                .help("More creative")
-                        }
-                        
-                        Text("Controls randomness in transcription output")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: settings.transcriptionModel) { _, _ in
+                        settings.saveSettings()
                     }
                 }
                 .padding(12)
@@ -271,6 +210,22 @@ struct ProviderSettingsView: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
+                
+                if !keyInput.wrappedValue.isEmpty {
+                    Button(action: testAPIKey) {
+                        if isTestingAPIKey {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .frame(width: 60)
+                        } else {
+                            Text("Test Key")
+                                .font(.caption)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isTestingAPIKey || keyInput.wrappedValue.isEmpty)
+                }
             }
             .onChange(of: keyInput.wrappedValue) { _, newValue in
                 saveAction(newValue)

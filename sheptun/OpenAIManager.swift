@@ -7,6 +7,7 @@ class OpenAIManager: AIProvider {
     private let logger = Logger.shared
     private let baseURL = "https://api.openai.com/v1"
     private let settings = SettingsManager.shared
+    private let TEMPERATURE: Double = 0.25  // Fixed temperature for consistent transcriptions
     var lastError: String?
     var isRecordingAudio = false
     
@@ -122,7 +123,7 @@ class OpenAIManager: AIProvider {
         arguments.append("-F")
         arguments.append("model=\(model)")
         arguments.append("-F")
-        arguments.append("temperature=\(temperature)")
+        arguments.append("temperature=\(TEMPERATURE)")
         arguments.append("-F")
         arguments.append("response_format=json")
         
