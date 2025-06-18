@@ -36,12 +36,13 @@ struct SettingsTabView: View {
                 action: { selectedTab = "recording" }
             )
             
-            TabButton(
-                title: "About",
-                icon: "info.circle",
-                isSelected: selectedTab == "about",
-                action: { selectedTab = "about" }
-            )
+            // About tab hidden as requested
+            // TabButton(
+            //     title: "About",
+            //     icon: "info.circle",
+            //     isSelected: selectedTab == "about",
+            //     action: { selectedTab = "about" }
+            // )
         }
         .background(Color(NSColor.windowBackgroundColor))
         .overlay(

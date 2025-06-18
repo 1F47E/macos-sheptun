@@ -7,11 +7,8 @@ struct AudioSettingsView: View {
     @State private var audioLevel: Float = 0
     @State private var audioMonitor: AudioLevelMonitor? = nil
     @State private var audioMonitorError: String? = nil
-    @State private var isTestingAudio = false
-    @State private var testRecordingURL: URL? = nil
     
     private let logger = Logger.shared
-    private let audioRecorder = AudioRecorder.shared
     
     var body: some View {
         ScrollView {
@@ -21,8 +18,6 @@ struct AudioSettingsView: View {
                 audioLevelSection
                 
                 audioQualitySection
-                
-                testRecordingSection
             }
             .padding(24)
         }
@@ -171,55 +166,6 @@ struct AudioSettingsView: View {
         }
     }
     
-    private var testRecordingSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Test Recording")
-                .font(.headline)
-            
-            GroupBox {
-                VStack(spacing: 16) {
-                    Text("Test your microphone setup with a quick recording")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    HStack {
-                        Button(action: toggleTestRecording) {
-                            HStack {
-                                Image(systemName: isTestingAudio ? "stop.circle" : "mic.circle")
-                                    .symbolVariant(isTestingAudio ? .fill : .none)
-                                Text(isTestingAudio ? "Stop Recording" : "Start Test Recording")
-                            }
-                        }
-                        .controlSize(.large)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(availableMicrophones.isEmpty)
-                        
-                        if isTestingAudio {
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 8, height: 8)
-                                    .opacity(isTestingAudio ? 1 : 0)
-                                    .animation(.easeInOut(duration: 0.5).repeatForever(), value: isTestingAudio)
-                                
-                                Text("Recording...")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        
-                        Spacer()
-                    }
-                    
-                    if let url = testRecordingURL {
-                        TestRecordingPlayer(url: url)
-                    }
-                }
-                .padding()
-            }
-        }
-    }
-    
     private var levelColor: Color {
         if audioLevel < 0.5 {
             return .green
@@ -228,37 +174,6 @@ struct AudioSettingsView: View {
         } else {
             return .red
         }
-    }
-    
-    private func toggleTestRecording() {
-        if isTestingAudio {
-            stopTestRecording()
-        } else {
-            startTestRecording()
-        }
-    }
-    
-    private func startTestRecording() {
-        isTestingAudio = true
-        testRecordingURL = nil
-        
-        audioRecorder.startRecording()
-        
-        // Stop recording after 3 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            if isTestingAudio {
-                stopTestRecording()
-            }
-        }
-    }
-    
-    private func stopTestRecording() {
-        isTestingAudio = false
-        audioRecorder.stopRecording()
-        
-        // For now, we'll just clear the test recording URL
-        // In a real implementation, we'd need to get the URL from the recorder
-        testRecordingURL = nil
     }
     
     private func startAudioMonitoring(deviceID: String) {
@@ -386,62 +301,6 @@ struct AudioWaveformView: View {
         } else {
             return .red
         }
-    }
-}
-
-struct TestRecordingPlayer: View {
-    let url: URL
-    @State private var isPlaying = false
-    @State private var player: AVAudioPlayer?
-    
-    var body: some View {
-        HStack {
-            Button(action: togglePlayback) {
-                HStack {
-                    Image(systemName: isPlaying ? "pause.circle" : "play.circle")
-                        .font(.title2)
-                    Text(isPlaying ? "Pause" : "Play Test Recording")
-                }
-            }
-            .buttonStyle(.bordered)
-            
-            if let player = player, isPlaying {
-                Text(formatTime(player.currentTime))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-        }
-        .onAppear {
-            setupPlayer()
-        }
-        .onDisappear {
-            player?.stop()
-        }
-    }
-    
-    private func setupPlayer() {
-        do {
-            player = try AVAudioPlayer(contentsOf: url)
-            player?.prepareToPlay()
-        } catch {
-            print("Failed to setup player: \(error)")
-        }
-    }
-    
-    private func togglePlayback() {
-        if isPlaying {
-            player?.pause()
-        } else {
-            player?.play()
-        }
-        isPlaying.toggle()
-    }
-    
-    private func formatTime(_ time: TimeInterval) -> String {
-        let seconds = Int(time)
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
 
