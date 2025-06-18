@@ -215,34 +215,25 @@ struct HistoryView: View {
         selectedEntry = entry
         
         Task {
-            let provider = settings.getCurrentAIProvider()
-            let aiManager = AIProviderFactory.getProvider(type: provider)
-            let apiKey = settings.getCurrentAPIKey()
-            
-            let result = await aiManager.transcribeAudio(
-                audioFileURL: audioFileURL,
-                apiKey: apiKey,
-                model: settings.transcriptionModel,
-                temperature: settings.transcriptionTemperature,
-                language: settings.transcriptionLanguage
-            )
+            let transcriptionService = TranscriptionService.shared
+            let result = await transcriptionService.transcribeAudioFile(audioFileURL)
             
             DispatchQueue.main.async {
                 self.isRetrying = false
                 self.selectedEntry = nil
                 
                 switch result {
-                case .success(let transcription):
+                case .success(let transcriptionResult):
                     // Update the entry in history
                     if let index = self.transcriptionHistory.firstIndex(where: { $0.id == entry.id }) {
                         self.transcriptionHistory[index] = RecordingSettingsView.TranscriptionEntry(
-                            text: transcription,
+                            text: transcriptionResult.text,
                             timestamp: entry.timestamp,
                             duration: entry.duration,
                             audioFileURL: nil,  // Remove audio file after successful transcription
                             isError: false,
-                            provider: String(describing: provider),
-                            model: settings.transcriptionModel,
+                            provider: String(describing: transcriptionResult.provider),
+                            model: transcriptionResult.model,
                             apiKey: nil,
                             debugInfo: nil
                         )
@@ -254,16 +245,23 @@ struct HistoryView: View {
                 case .failure(let error):
                     // Update error message
                     if let index = self.transcriptionHistory.firstIndex(where: { $0.id == entry.id }) {
+                        let debugInfo = transcriptionService.getDebugInfo() + """
+                        
+                        
+                        Audio File: \(audioFileURL.lastPathComponent)
+                        Error: \(error.localizedDescription)
+                        """
+                        
                         self.transcriptionHistory[index] = RecordingSettingsView.TranscriptionEntry(
                             text: "Error: \(error.localizedDescription)",
                             timestamp: entry.timestamp,
                             duration: entry.duration,
                             audioFileURL: entry.audioFileURL,  // Keep audio file for another retry
                             isError: true,
-                            provider: String(describing: provider),
+                            provider: settings.selectedProvider,
                             model: settings.transcriptionModel,
-                            apiKey: apiKey,
-                            debugInfo: entry.debugInfo  // Keep existing debug info
+                            apiKey: nil,
+                            debugInfo: debugInfo
                         )
                     }
                 }

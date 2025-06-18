@@ -318,30 +318,19 @@ struct RecordingSettingsView: View {
             return
         }
         
-        // Transcribing state already set in stopTestTranscription()
-        
-        // Get AI provider and transcribe
-        let provider = settings.getCurrentAIProvider()
-        let aiManager = AIProviderFactory.getProvider(type: provider)
-        let apiKey = settings.getCurrentAPIKey()
-        
-        let result = await aiManager.transcribeAudio(
-            audioFileURL: audioFileURL,
-            apiKey: apiKey,
-            model: settings.transcriptionModel,
-            temperature: settings.transcriptionTemperature,
-            language: settings.transcriptionLanguage
-        )
+        // Use the centralized TranscriptionService
+        let transcriptionService = TranscriptionService.shared
+        let result = await transcriptionService.transcribeAudioFile(audioFileURL)
         
         DispatchQueue.main.async {
             self.isRecordingTest = false
             self.isTranscribing = false
             
             switch result {
-            case .success(let transcription):
-                let wordCount = transcription.split(separator: " ").count
+            case .success(let transcriptionResult):
+                let wordCount = transcriptionResult.text.split(separator: " ").count
                 self.testResult = TestResult(
-                    transcription: transcription,
+                    transcription: transcriptionResult.text,
                     duration: duration,
                     wordCount: wordCount,
                     timestamp: Date()
@@ -349,13 +338,13 @@ struct RecordingSettingsView: View {
                 
                 self.transcriptionHistory.insert(
                     TranscriptionEntry(
-                        text: transcription,
+                        text: transcriptionResult.text,
                         timestamp: Date(),
                         duration: duration,
                         audioFileURL: nil,  // Success - no need to keep audio
                         isError: false,
-                        provider: String(describing: provider),
-                        model: settings.transcriptionModel,
+                        provider: String(describing: transcriptionResult.provider),
+                        model: transcriptionResult.model,
                         apiKey: nil,  // Don't store API key for successful transcriptions
                         debugInfo: nil
                     ),
@@ -373,12 +362,10 @@ struct RecordingSettingsView: View {
                 // Save the audio file for retry
                 let savedAudioURL = self.saveAudioFileForRetry(audioFileURL)
                 
-                // Store failed transcription in history with audio file
-                let debugInfo = """
-                Provider: \(String(describing: provider))
-                Model: \(settings.transcriptionModel)
-                Language: \(settings.transcriptionLanguage)
-                Temperature: \(settings.transcriptionTemperature)
+                // Get debug info from the service
+                let debugInfo = transcriptionService.getDebugInfo() + """
+                
+                
                 Audio File: \(audioFileURL.lastPathComponent)
                 Error: \(error.localizedDescription)
                 """
@@ -390,9 +377,9 @@ struct RecordingSettingsView: View {
                         duration: duration,
                         audioFileURL: savedAudioURL,
                         isError: true,
-                        provider: String(describing: provider),
+                        provider: settings.selectedProvider,
                         model: settings.transcriptionModel,
-                        apiKey: apiKey,  // Store for retry (should be encrypted in production)
+                        apiKey: nil,  // Don't store API key
                         debugInfo: debugInfo
                     ),
                     at: 0
@@ -431,33 +418,24 @@ struct RecordingSettingsView: View {
         isTranscribing = true
         
         Task {
-            let provider = settings.getCurrentAIProvider()
-            let aiManager = AIProviderFactory.getProvider(type: provider)
-            let apiKey = settings.getCurrentAPIKey()
-            
-            let result = await aiManager.transcribeAudio(
-                audioFileURL: audioFileURL,
-                apiKey: apiKey,
-                model: settings.transcriptionModel,
-                temperature: settings.transcriptionTemperature,
-                language: settings.transcriptionLanguage
-            )
+            let transcriptionService = TranscriptionService.shared
+            let result = await transcriptionService.transcribeAudioFile(audioFileURL)
             
             DispatchQueue.main.async {
                 self.isTranscribing = false
                 
                 switch result {
-                case .success(let transcription):
+                case .success(let transcriptionResult):
                     // Update the entry in history
                     if let index = self.transcriptionHistory.firstIndex(where: { $0.id == entry.id }) {
                         self.transcriptionHistory[index] = TranscriptionEntry(
-                            text: transcription,
+                            text: transcriptionResult.text,
                             timestamp: entry.timestamp,
                             duration: entry.duration,
                             audioFileURL: nil,  // Remove audio file after successful transcription
                             isError: false,
-                            provider: String(describing: provider),
-                            model: settings.transcriptionModel,
+                            provider: String(describing: transcriptionResult.provider),
+                            model: transcriptionResult.model,
                             apiKey: nil,
                             debugInfo: nil
                         )
@@ -469,11 +447,9 @@ struct RecordingSettingsView: View {
                 case .failure(let error):
                     // Update error message
                     if let index = self.transcriptionHistory.firstIndex(where: { $0.id == entry.id }) {
-                        let debugInfo = """
-                        Provider: \(String(describing: provider))
-                        Model: \(settings.transcriptionModel)
-                        Language: \(settings.transcriptionLanguage)
-                        Temperature: \(settings.transcriptionTemperature)
+                        let debugInfo = transcriptionService.getDebugInfo() + """
+                        
+                        
                         Audio File: \(audioFileURL.lastPathComponent)
                         Error: \(error.localizedDescription)
                         """
@@ -484,9 +460,9 @@ struct RecordingSettingsView: View {
                             duration: entry.duration,
                             audioFileURL: entry.audioFileURL,  // Keep audio file for another retry
                             isError: true,
-                            provider: String(describing: provider),
+                            provider: settings.selectedProvider,
                             model: settings.transcriptionModel,
-                            apiKey: apiKey,
+                            apiKey: nil,
                             debugInfo: debugInfo
                         )
                     }

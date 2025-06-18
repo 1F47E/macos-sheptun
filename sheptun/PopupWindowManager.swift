@@ -135,13 +135,13 @@ class PopupWindowManager: NSObject, ObservableObject {
         audioRecorder.stopRecording()
         stopAudioLevelSimulation()
         
-        let apiKey = settingsManager.getCurrentAPIKey()
-        if apiKey.isEmpty {
+        // Check API key early
+        if settingsManager.getCurrentAPIKey().isEmpty {
             currentState = .error("API Key not set in settings.")
             return
         }
         
-        // In your code: transcribe in background
+        // Use centralized TranscriptionService
         Task.detached { [weak self] in
             guard let self = self else { return }
             
@@ -155,20 +155,12 @@ class PopupWindowManager: NSObject, ObservableObject {
                 return
             }
             
-            let providerType = self.settingsManager.getCurrentAIProvider()
-            let provider = AIProviderFactory.getProvider(type: providerType)
-            
-            let result = await provider.transcribeAudio(
-                audioFileURL: recordedFileURL,
-                apiKey: apiKey,
-                model: self.settingsManager.transcriptionModel,
-                temperature: self.settingsManager.transcriptionTemperature,
-                language: self.settingsManager.transcriptionLanguage
-            )
+            let transcriptionService = await TranscriptionService.shared
+            let result = await transcriptionService.transcribeAudioFile(recordedFileURL)
             
             await MainActor.run {
                 switch result {
-                case .success(let transcription):
+                case .success(let transcriptionResult):
                     // --- History Saving START ---
                     // TODO: Re-enable after adding GRDB dependency
                     /*
@@ -178,7 +170,7 @@ class PopupWindowManager: NSObject, ObservableObject {
                             let historyItem = HistoryItem(
                                 timestamp: Date(),
                                 audioFilePath: persistentURL.path,
-                                transcription: transcription
+                                transcription: transcriptionResult.text
                             )
                             try await DatabaseManager.shared.saveHistoryItem(item: historyItem)
                             self.logger.log("Successfully saved transcription to history.", level: .info)
@@ -192,25 +184,8 @@ class PopupWindowManager: NSObject, ObservableObject {
                     */
                     // --- History Saving END ---
 
-                    // Copy result to clipboard
-                    self.logger.log("Copying transcription to clipboard", level: .info)
-                    NSPasteboard.general.clearContents()
-                    let success = NSPasteboard.general.setString(transcription, forType: .string)
-                    self.logger.log("Clipboard setString result: \(success)", level: .info)
-                    
-                    // Verify clipboard content
-                    if let clipboardCheck = NSPasteboard.general.string(forType: .string) {
-                        self.logger.log("Verified clipboard content (first 50 chars): \(String(clipboardCheck.prefix(50)))...", level: .info)
-                    } else {
-                        self.logger.log("ERROR: Failed to verify clipboard content!", level: .error)
-                    }
-                    
-                    // Post notification for test result tracking
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name("TranscriptionCompleted"),
-                        object: nil,
-                        userInfo: ["transcription": transcription]
-                    )
+                    // Handle clipboard and auto-paste
+                    transcriptionService.handleTranscriptionResult(transcriptionResult.text, autoPaste: self.settingsManager.autoPasteTranscription)
                     
                     // Only auto-paste if enabled in settings
                     self.logger.log("Checking auto-paste setting: \(self.settingsManager.autoPasteTranscription)", level: .info)
@@ -224,13 +199,7 @@ class PopupWindowManager: NSObject, ObservableObject {
                     
                 case .failure(let error):
                     self.currentState = .error("Transcription failed: \(error.localizedDescription)")
-                    
-                    // Report to Sentry
-                    SentryManager.shared.captureError(error, context: [
-                        "provider": self.settingsManager.selectedProvider,
-                        "model": self.settingsManager.transcriptionModel,
-                        "microphone": self.settingsManager.selectedMicrophoneID
-                    ])
+                    // Error reporting is already handled in TranscriptionService
                 }
             }
         }
