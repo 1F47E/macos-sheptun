@@ -19,6 +19,7 @@ class SettingsManager: ObservableObject {
     @Published var selectedProvider: String = "groq"
     @Published var isRecordingAudio = false
     @Published var lastError: String?
+    @Published var autoPasteTranscription: Bool = true
     
     private enum Keys {
         static let hotkeyModifiers = "hotkeyModifiers"
@@ -30,6 +31,7 @@ class SettingsManager: ObservableObject {
         static let transcriptionModel = "transcriptionModel"
         static let transcriptionTemperature = "transcriptionTemperature"
         static let selectedProvider = "selectedProvider"
+        static let autoPasteTranscription = "autoPasteTranscription"
     }
     
     init() {
@@ -156,6 +158,15 @@ class SettingsManager: ObservableObject {
         } else {
              logger.log("Loaded transcription temperature: \(transcriptionTemperature)")
         }
+        
+        // Load auto-paste setting
+        if defaults.object(forKey: Keys.autoPasteTranscription) != nil {
+            autoPasteTranscription = defaults.bool(forKey: Keys.autoPasteTranscription)
+            logger.log("Loaded auto-paste setting: \(autoPasteTranscription)")
+        } else {
+            autoPasteTranscription = true // Default to true
+            logger.log("Auto-paste setting not set, using default: true")
+        }
     }
     
     // Method to get the default model for the current provider
@@ -233,6 +244,9 @@ class SettingsManager: ObservableObject {
         
         defaults.set(transcriptionTemperature, forKey: Keys.transcriptionTemperature)
         logger.log("Saved transcription temperature: \(transcriptionTemperature)")
+        
+        defaults.set(autoPasteTranscription, forKey: Keys.autoPasteTranscription)
+        logger.log("Saved auto-paste setting: \(autoPasteTranscription)")
     }
     
     // Returns the current selected AIProviderType

@@ -20,7 +20,7 @@ class AudioRecorder: NSObject, ObservableObject {
     private var audioMonitor: AudioLevelMonitor?
     
     // Recording file URL
-    private var recordingFileURL: URL?
+    private(set) var recordingFileURL: URL?
     
     // Task management
     private var setupTask: Task<Void, Never>?
@@ -40,6 +40,9 @@ class AudioRecorder: NSObject, ObservableObject {
             return false
         }
         
+        // Capture the microphone ID to avoid potential deallocation issues
+        let capturedMicID = String(microphoneID)
+        
         // Start the recording setup process
         setupTask = Task { [weak self] in
             guard let self = self else { return }
@@ -58,7 +61,7 @@ class AudioRecorder: NSObject, ObservableObject {
                 ]
                 
                 // Try to set the selected microphone device
-                if !microphoneID.isEmpty && microphoneID != "default", let deviceIDInt = UInt32(microphoneID) {
+                if !capturedMicID.isEmpty && capturedMicID != "default", let deviceIDInt = UInt32(capturedMicID) {
                     var deviceID = AudioDeviceID(deviceIDInt)
                     self.logger.log("Setting recording device to ID: \(deviceID)", level: .info)
                     
@@ -301,7 +304,8 @@ class AudioRecorder: NSObject, ObservableObject {
     
     // Original method for backward compatibility
     func startRecording() {
-        _ = startRecording(microphoneID: settings.selectedMicrophoneID)
+        let micID = settings.selectedMicrophoneID
+        _ = startRecording(microphoneID: micID)
     }
     
     // Check if microphone permission is granted

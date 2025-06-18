@@ -184,7 +184,20 @@ class PopupWindowManager: NSObject, ObservableObject {
                     // Copy result to clipboard, simulate Cmd+V, etc.
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(transcription, forType: .string)
-                    self.simulatePasteAndClose()
+                    
+                    // Post notification for test result tracking
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("TranscriptionCompleted"),
+                        object: nil,
+                        userInfo: ["transcription": transcription]
+                    )
+                    
+                    // Only auto-paste if enabled in settings
+                    if self.settingsManager.autoPasteTranscription {
+                        self.simulatePasteAndClose()
+                    } else {
+                        self.closePopup()
+                    }
                     
                 case .failure(let error):
                     self.currentState = .error("Transcription failed: \(error.localizedDescription)")

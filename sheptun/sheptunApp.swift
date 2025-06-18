@@ -138,10 +138,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindow == nil {
             logger.log("Creating settings window", level: .debug)
             
-            // Create the window
+            // Create the window with modern styling
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 500, height: 350),
-                styleMask: [.titled, .closable, .fullSizeContentView],
+                contentRect: NSRect(x: 0, y: 0, width: 700, height: 550),
+                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
@@ -150,6 +150,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.titlebarAppearsTransparent = true
             window.isReleasedWhenClosed = false
             window.backgroundColor = NSColor.windowBackgroundColor
+            window.isMovableByWindowBackground = true
+            window.collectionBehavior = [.fullScreenAuxiliary]
+            
+            // Add visual effect view for modern appearance
+            if let contentView = window.contentView {
+                let visualEffectView = NSVisualEffectView()
+                visualEffectView.blendingMode = .behindWindow
+                visualEffectView.state = .active
+                visualEffectView.material = .headerView
+                contentView.addSubview(visualEffectView)
+                visualEffectView.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    visualEffectView.topAnchor.constraint(equalTo: contentView.topAnchor),
+                    visualEffectView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                    visualEffectView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                    visualEffectView.heightAnchor.constraint(equalToConstant: 82) // Title bar height
+                ])
+            }
             
             // Set the SwiftUI view as the window content
             let settingsView = SettingsView()
