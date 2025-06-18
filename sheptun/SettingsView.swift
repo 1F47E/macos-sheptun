@@ -7,10 +7,12 @@ struct SettingsView: View {
     // Keep track of whether we're revealing each API key
     @State private var showOpenAIKey: Bool = false
     @State private var showGroqKey: Bool = false
+    @State private var showDeepgramKey: Bool = false
     
     // Local copies of the keys (we mirror them from settings)
     @State private var openAIKeyInput: String = ""
     @State private var groqKeyInput: String = ""
+    @State private var deepgramKeyInput: String = ""
     
     // Microphone
     @State private var availableMicrophones: [SettingsManager.MicrophoneDevice] = []
@@ -46,6 +48,7 @@ struct SettingsView: View {
                         Picker("Provider", selection: $settings.selectedProvider) {
                             Text("OpenAI").tag("openai")
                             Text("Groq").tag("groq")
+                            Text("Deepgram").tag("deepgram")
                         }
                         .pickerStyle(SegmentedPickerStyle())
                         .labelsHidden() // Hide the Picker's label as the title is sufficient
@@ -88,6 +91,16 @@ struct SettingsView: View {
                                     settings.saveSettings()
                                 }
                             )
+                        } else if settings.selectedProvider == "deepgram" {
+                            apiKeyInputView(
+                                label: "Deepgram API Key",
+                                keyInput: $deepgramKeyInput,
+                                showKey: $showDeepgramKey,
+                                saveAction: { newValue in
+                                    settings.deepgramKey = newValue
+                                    settings.saveSettings()
+                                }
+                            )
                         }
                         
                         // Test API Key Controls
@@ -109,9 +122,12 @@ struct SettingsView: View {
                                 Text("GPT-4o Mini").tag("gpt-4o-mini-transcribe")
                                 Text("GPT-4o").tag("gpt-4o-transcribe")
                                 Text("Whisper").tag("whisper-1")
-                            } else {
+                            } else if settings.selectedProvider == "groq" {
                                 Text("Whisper Large v3").tag("whisper-large-v3")
                                 Text("Whisper Large v3 Turbo").tag("whisper-large-v3-turbo")
+                            } else if settings.selectedProvider == "deepgram" {
+                                Text("Nova 3").tag("nova-3")
+                                Text("Nova 2").tag("nova-2")
                             }
                         }
                         .pickerStyle(.segmented)
@@ -185,6 +201,7 @@ struct SettingsView: View {
             
             openAIKeyInput = settings.openAIKey
             groqKeyInput = settings.groqKey
+            deepgramKeyInput = settings.deepgramKey
         }
         .onDisappear {
             stopAudioMonitoring()
@@ -218,6 +235,7 @@ struct SettingsView: View {
             .onAppear { // Ensure local state matches manager on appear
                  if label.contains("OpenAI") { keyInput.wrappedValue = settings.openAIKey }
                  if label.contains("Groq") { keyInput.wrappedValue = settings.groqKey }
+                 if label.contains("Deepgram") { keyInput.wrappedValue = settings.deepgramKey }
             }
             .onChange(of: keyInput.wrappedValue) { oldValue, newValue in
                 saveAction(newValue) // Call the save action passed in
@@ -296,6 +314,7 @@ struct SettingsView: View {
         switch settings.selectedProvider {
         case "openai": return settings.openAIKey
         case "groq":   return settings.groqKey
+        case "deepgram": return settings.deepgramKey
         default:       return ""
         }
     }

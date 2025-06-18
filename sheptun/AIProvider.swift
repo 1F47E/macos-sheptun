@@ -17,6 +17,7 @@ protocol AIProvider {
 enum AIProviderType {
     case openAI
     case groq
+    case deepgram
 }
 
 class AIProviderFactory {
@@ -26,6 +27,8 @@ class AIProviderFactory {
             return OpenAIManager.shared
         case .groq:
             return GroqAIManager.shared
+        case .deepgram:
+            return DeepgramManager.shared
         }
     }
 } 

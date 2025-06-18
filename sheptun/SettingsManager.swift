@@ -12,6 +12,7 @@ class SettingsManager: ObservableObject {
     @Published var hotkeyKeyCode: UInt = 0
     @Published var openAIKey: String = ""
     @Published var groqKey: String = ""
+    @Published var deepgramKey: String = ""
     @Published var selectedMicrophoneID: String = ""
     @Published var transcriptionModel: String = "whisper-large-v3-turbo"
     @Published var transcriptionTemperature: Double = 0.3
@@ -24,6 +25,7 @@ class SettingsManager: ObservableObject {
         static let hotkeyKeyCode = "hotkeyKeyCode"
         static let openAIKey = "openAIKey"
         static let groqKey = "groqKey"
+        static let deepgramKey = "deepgramKey"
         static let selectedMicrophoneID = "selectedMicrophoneID"
         static let transcriptionModel = "transcriptionModel"
         static let transcriptionTemperature = "transcriptionTemperature"
@@ -71,6 +73,21 @@ class SettingsManager: ObservableObject {
             print("DEBUG: Loaded Groq API key - \(maskAPIKey(groqKey))")
         } else {
             logger.log("No Groq API key found in settings", level: .info)
+        }
+        
+        if let encryptedKey = defaults.string(forKey: Keys.deepgramKey) {
+            logger.log("Found encrypted Deepgram API key, attempting to decrypt")
+            deepgramKey = decryptString(encryptedKey) ?? ""
+            
+            if deepgramKey.isEmpty {
+                logger.log("Failed to decrypt Deepgram API key", level: .error)
+            } else {
+                logger.log("Successfully decrypted Deepgram API key: \(maskAPIKey(deepgramKey))")
+            }
+            
+            print("DEBUG: Loaded Deepgram API key - \(maskAPIKey(deepgramKey))")
+        } else {
+            logger.log("No Deepgram API key found in settings", level: .info)
         }
         
         if let provider = defaults.string(forKey: Keys.selectedProvider) {
@@ -148,6 +165,8 @@ class SettingsManager: ObservableObject {
             return "whisper-large-v3-turbo"
         case "openai":
             return "gpt-4o-mini-transcribe"
+        case "deepgram":
+            return "nova-3"
         default:
             return "gpt-4o-mini-transcribe"
         }
@@ -160,7 +179,8 @@ class SettingsManager: ObservableObject {
         // Only update the model if it's not already set for the current provider
         // or if switching providers
         if (selectedProvider == "openai" && !["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"].contains(transcriptionModel)) ||
-           (selectedProvider == "groq" && !["whisper-large-v3", "whisper-large-v3-turbo"].contains(transcriptionModel)) {
+           (selectedProvider == "groq" && !["whisper-large-v3", "whisper-large-v3-turbo"].contains(transcriptionModel)) ||
+           (selectedProvider == "deepgram" && !["nova-2", "nova", "nova-3"].contains(transcriptionModel)) {
             
             transcriptionModel = getDefaultModelForProvider(provider: selectedProvider)
             logger.log("Provider changed to \(selectedProvider), updated model from \(previousModel) to \(transcriptionModel)")
@@ -193,6 +213,15 @@ class SettingsManager: ObservableObject {
             logger.log("No Groq API key to save", level: .warning)
         }
         
+        if !deepgramKey.isEmpty {
+            logger.log("Encrypting and saving Deepgram API key")
+            defaults.set(encryptString(deepgramKey), forKey: Keys.deepgramKey)
+            print("DEBUG: Saved Deepgram API key - \(maskAPIKey(deepgramKey))")
+            logger.log("Deepgram API key saved: \(maskAPIKey(deepgramKey))")
+        } else {
+            logger.log("No Deepgram API key to save", level: .warning)
+        }
+        
         defaults.set(selectedProvider, forKey: Keys.selectedProvider)
         logger.log("Saved selected provider: \(selectedProvider)")
         
@@ -211,6 +240,8 @@ class SettingsManager: ObservableObject {
         switch selectedProvider.lowercased() {
         case "groq":
             return .groq
+        case "deepgram":
+            return .deepgram
         default:
             return .openAI
         }
@@ -223,6 +254,8 @@ class SettingsManager: ObservableObject {
             return groqKey
         case .openAI:
             return openAIKey
+        case .deepgram:
+            return deepgramKey
         }
     }
     
