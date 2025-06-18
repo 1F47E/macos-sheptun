@@ -156,7 +156,7 @@ struct AudioSettingsView: View {
                         Label("Sample Rate", systemImage: "waveform.path")
                             .foregroundColor(.secondary)
                         Spacer()
-                        Text("48 kHz")
+                        Text("16 kHz")
                             .font(.system(.body, design: .monospaced))
                     }
                     
@@ -166,7 +166,7 @@ struct AudioSettingsView: View {
                         Label("Format", systemImage: "doc.badge.waveform")
                             .foregroundColor(.secondary)
                         Spacer()
-                        Text("Linear PCM")
+                        Text("WAV (16-bit PCM)")
                             .font(.system(.body, design: .monospaced))
                     }
                     
