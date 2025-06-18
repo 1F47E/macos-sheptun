@@ -243,7 +243,8 @@ struct HistoryView: View {
                             isError: false,
                             provider: String(describing: provider),
                             model: settings.transcriptionModel,
-                            apiKey: nil
+                            apiKey: nil,
+                            debugInfo: nil
                         )
                         
                         // Delete the audio file
@@ -261,7 +262,8 @@ struct HistoryView: View {
                             isError: true,
                             provider: String(describing: provider),
                             model: settings.transcriptionModel,
-                            apiKey: apiKey
+                            apiKey: apiKey,
+                            debugInfo: entry.debugInfo  // Keep existing debug info
                         )
                     }
                 }

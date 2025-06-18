@@ -93,8 +93,14 @@ class DeepgramManager: AIProvider {
         // Try environment variable if empty string is provided
         let key = apiKey.isEmpty ? getAPIKeyFromEnvironment() ?? apiKey : apiKey
         
-        // Validate model selection - default to nova-3 if not specified
-        let validModel = (model == "nova-2" || model == "nova" || model == "nova-3") ? model : "nova-3"
+        // Validate model selection - use nova-2 for Russian, nova-3 for others
+        var validModel = (model == "nova-2" || model == "nova" || model == "nova-3") ? model : "nova-3"
+        
+        // Special handling for Russian language - nova-3 doesn't support Russian
+        if language == "ru" && validModel == "nova-3" {
+            validModel = "nova-2"
+            logger.log("Switching to nova-2 model for Russian language (nova-3 doesn't support Russian)", level: .info)
+        }
         
         let startTime = Date()
         logger.log("Starting audio transcription with curl using Deepgram model: \(validModel)", level: .info)
@@ -120,6 +126,7 @@ class DeepgramManager: AIProvider {
         // Log the request details
         logger.log("Deepgram API URL: \(urlComponents.url?.absoluteString ?? "invalid")", level: .debug)
         logger.log("Using API key: \(key.prefix(8))....\(key.suffix(4))", level: .debug)
+        logger.log("Request parameters - Model: \(validModel), Language: \(language), Smart Format: true", level: .info)
         
         // Note: Deepgram doesn't support temperature parameter
         if temperature > 0 {
@@ -166,8 +173,10 @@ class DeepgramManager: AIProvider {
         logger.log("Audio file exists: \(FileManager.default.fileExists(atPath: audioFileURL.path))", level: .debug)
         
         // Check file size
+        var audioFileSize: Int64 = 0
         if let fileAttributes = try? FileManager.default.attributesOfItem(atPath: audioFileURL.path),
            let fileSize = fileAttributes[.size] as? Int64 {
+            audioFileSize = fileSize
             logger.log("Audio file size: \(fileSize) bytes", level: .debug)
         }
         
@@ -234,6 +243,8 @@ class DeepgramManager: AIProvider {
                 // Log the raw response for debugging
                 let responseString = String(data: outputData, encoding: .utf8) ?? "Unable to decode response"
                 logger.log("Deepgram API raw response: \(responseString)", level: .debug)
+                logger.log("Full request URL: \(urlComponents.url?.absoluteString ?? "unknown")", level: .debug)
+                logger.log("Audio file info - Path: \(audioFileURL.path), Size: \(audioFileSize) bytes", level: .debug)
                 
                 // Check HTTP status code first
                 if httpStatusCode != "200" {

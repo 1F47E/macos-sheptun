@@ -31,6 +31,7 @@ struct RecordingSettingsView: View {
         let provider: String?   // Store which provider was used
         let model: String?      // Store which model was used
         let apiKey: String?     // Store API key for retry (will be encrypted in real implementation)
+        let debugInfo: String?  // Store debug information for errors
     }
     
     var body: some View {
@@ -355,7 +356,8 @@ struct RecordingSettingsView: View {
                         isError: false,
                         provider: String(describing: provider),
                         model: settings.transcriptionModel,
-                        apiKey: nil  // Don't store API key for successful transcriptions
+                        apiKey: nil,  // Don't store API key for successful transcriptions
+                        debugInfo: nil
                     ),
                     at: 0
                 )
@@ -372,6 +374,15 @@ struct RecordingSettingsView: View {
                 let savedAudioURL = self.saveAudioFileForRetry(audioFileURL)
                 
                 // Store failed transcription in history with audio file
+                let debugInfo = """
+                Provider: \(String(describing: provider))
+                Model: \(settings.transcriptionModel)
+                Language: \(settings.transcriptionLanguage)
+                Temperature: \(settings.transcriptionTemperature)
+                Audio File: \(audioFileURL.lastPathComponent)
+                Error: \(error.localizedDescription)
+                """
+                
                 self.transcriptionHistory.insert(
                     TranscriptionEntry(
                         text: "Error: \(error.localizedDescription)",
@@ -381,7 +392,8 @@ struct RecordingSettingsView: View {
                         isError: true,
                         provider: String(describing: provider),
                         model: settings.transcriptionModel,
-                        apiKey: apiKey  // Store for retry (should be encrypted in production)
+                        apiKey: apiKey,  // Store for retry (should be encrypted in production)
+                        debugInfo: debugInfo
                     ),
                     at: 0
                 )
@@ -446,7 +458,8 @@ struct RecordingSettingsView: View {
                             isError: false,
                             provider: String(describing: provider),
                             model: settings.transcriptionModel,
-                            apiKey: nil
+                            apiKey: nil,
+                            debugInfo: nil
                         )
                         
                         // Delete the audio file
@@ -456,6 +469,15 @@ struct RecordingSettingsView: View {
                 case .failure(let error):
                     // Update error message
                     if let index = self.transcriptionHistory.firstIndex(where: { $0.id == entry.id }) {
+                        let debugInfo = """
+                        Provider: \(String(describing: provider))
+                        Model: \(settings.transcriptionModel)
+                        Language: \(settings.transcriptionLanguage)
+                        Temperature: \(settings.transcriptionTemperature)
+                        Audio File: \(audioFileURL.lastPathComponent)
+                        Error: \(error.localizedDescription)
+                        """
+                        
                         self.transcriptionHistory[index] = TranscriptionEntry(
                             text: "Error: \(error.localizedDescription)",
                             timestamp: entry.timestamp,
@@ -464,7 +486,8 @@ struct RecordingSettingsView: View {
                             isError: true,
                             provider: String(describing: provider),
                             model: settings.transcriptionModel,
-                            apiKey: apiKey
+                            apiKey: apiKey,
+                            debugInfo: debugInfo
                         )
                     }
                 }
@@ -512,6 +535,7 @@ struct HotkeyDisplay: View {
 struct TestResultView: View {
     let result: RecordingSettingsView.TestResult
     @State private var showingFullText = false
+    @StateObject private var settings = SettingsManager.shared
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -591,10 +615,29 @@ struct TestResultView: View {
                     .padding()
                 
                 ScrollView {
-                    Text(result.transcription)
-                        .font(.system(.body, design: .monospaced))
-                        .padding()
-                        .textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text(result.transcription)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                        
+                        if result.transcription.hasPrefix("Error:") {
+                            Divider()
+                            
+                            Text("Debug Information")
+                                .font(.headline)
+                                .padding(.top)
+                            
+                            Text("""
+                            Provider: \(settings.selectedProvider)
+                            Model: \(settings.transcriptionModel)
+                            Language: \(settings.transcriptionLanguage)
+                            Temperature: \(settings.transcriptionTemperature)
+                            """)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                        }
+                    }
+                    .padding()
                 }
                 
                 Button("Done") {
