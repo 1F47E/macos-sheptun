@@ -6,24 +6,88 @@ struct HotkeyRecorder: View {
     @Binding var modifiers: UInt
     @State private var isRecording = false
     @State private var displayText = ""
+    @Environment(\.dismiss) private var dismiss
     private let logger = Logger.shared
     
     var body: some View {
-        HStack {
-            Text(displayText.isEmpty ? "No shortcut set" : displayText)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: 0) {
+            // Title bar with close button
+            HStack {
+                Text("Set Hotkey")
+                    .font(.headline)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .font(.title2)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.escape)
+            }
+            .padding()
+            .background(Color(NSColor.windowBackgroundColor))
             
-            Button(isRecording ? "Press keys..." : "Record") {
-                isRecording.toggle()
-                logger.log("Hotkey recording \(isRecording ? "started" : "stopped")")
-                if isRecording {
-                    NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
-                        handleKeyEvent(event)
-                        return nil
+            Divider()
+            
+            // Main content
+            VStack(spacing: 24) {
+                // Instructions
+                Text("Press the key combination you want to use")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                
+                // Large centered hotkey display
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(isRecording ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(isRecording ? Color.accentColor : Color(NSColor.separatorColor), lineWidth: 2)
+                        )
+                    
+                    if displayText.isEmpty {
+                        Text("No shortcut set")
+                            .font(.system(size: 24, weight: .light, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text(displayText)
+                            .font(.system(size: 36, weight: .medium, design: .monospaced))
+                            .foregroundColor(isRecording ? .accentColor : .primary)
                     }
                 }
+                .frame(height: 80)
+                .animation(.easeInOut(duration: 0.2), value: isRecording)
+                
+                // Record button
+                Button(action: {
+                    isRecording.toggle()
+                    logger.log("Hotkey recording \(isRecording ? "started" : "stopped")")
+                    if isRecording {
+                        NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+                            handleKeyEvent(event)
+                            return nil
+                        }
+                    }
+                }) {
+                    Label(
+                        isRecording ? "Recording... Press keys" : "Record Shortcut",
+                        systemImage: isRecording ? "record.circle.fill" : "keyboard"
+                    )
+                    .frame(minWidth: 200)
+                }
+                .controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                
+                // Requirements note
+                Text("Requires ⌘ Command + ⇧ Shift + any key")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
+            .padding(32)
         }
+        .frame(width: 450, height: 300)
+        .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             updateDisplayText()
             logger.log("HotkeyRecorder appeared, current hotkey: \(displayText)")
@@ -107,9 +171,24 @@ struct HotkeyRecorder: View {
         case 40: return "K"
         case 45: return "N"
         case 46: return "M"
+        case 18: return "1"
+        case 19: return "2"
+        case 20: return "3"
+        case 21: return "4"
+        case 23: return "5"
+        case 22: return "6"
+        case 26: return "7"
+        case 28: return "8"
+        case 25: return "9"
+        case 29: return "0"
+        case 49: return "Space"
+        case 36: return "Return"
+        case 48: return "Tab"
+        case 51: return "Delete"
+        case 53: return "Escape"
         default:
             logger.log("Unknown key code: \(keyCode)", level: .warning)
-            return nil
+            return "Key\(keyCode)"
         }
     }
 } 
