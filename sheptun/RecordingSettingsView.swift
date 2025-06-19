@@ -49,8 +49,28 @@ struct RecordingSettingsView: View {
         }
         .sheet(isPresented: $showingHotkeyRecorder) {
             HotkeyRecorder(
-                keyCode: $settings.hotkeyKeyCode,
-                modifiers: $settings.hotkeyModifiers
+                initialKeyCode: settings.hotkeyKeyCode,
+                initialModifiers: settings.hotkeyModifiers,
+                onSave: { newKeyCode, newModifiers in
+                    // Update settings with new values
+                    settings.hotkeyKeyCode = newKeyCode
+                    settings.hotkeyModifiers = newModifiers
+                    settings.saveSettings()
+                    
+                    // Re-register hotkey with system
+                    hotkeyManager.unregisterHotkey()
+                    if newKeyCode != 0 && newModifiers != 0 {
+                        let success = hotkeyManager.registerHotkey(
+                            keyCode: newKeyCode,
+                            modifiers: newModifiers
+                        )
+                        if success {
+                            logger.log("Successfully registered new hotkey", level: .info)
+                        } else {
+                            logger.log("Failed to register new hotkey", level: .error)
+                        }
+                    }
+                }
             )
         }
     }
