@@ -131,9 +131,25 @@ class PopupWindowManager: NSObject, ObservableObject {
     func startTranscription() {
         guard popupWindow?.isVisible == true else { return }
         
-        currentState = .transcribing
+        // Check recording duration before stopping
+        let recordingDuration = audioRecorder.getRecordingDuration()
+        
+        // Stop recording first
         audioRecorder.stopRecording()
         stopAudioLevelSimulation()
+        
+        // Check if recording is too short (less than 1 second)
+        if recordingDuration < 1.0 {
+            logger.log("Recording too short: \(String(format: "%.2f", recordingDuration)) seconds. Skipping transcription.", level: .info)
+            currentState = .error("Recording too short (< 1 second)")
+            // Auto-close after 2 seconds for short recordings
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self?.closePopup()
+            }
+            return
+        }
+        
+        currentState = .transcribing
         
         // Check API key early
         if settingsManager.getCurrentAPIKey().isEmpty {

@@ -297,6 +297,14 @@ class AudioRecorder: NSObject, ObservableObject {
         return nil
     }
     
+    // Get the recording duration
+    func getRecordingDuration() -> TimeInterval {
+        if isRecording, let startTime = recordingStartTime {
+            return Date().timeIntervalSince(startTime)
+        }
+        return recordingTime
+    }
+    
     // Clean up all resources
     func cleanup() {
         setupTask?.cancel()
