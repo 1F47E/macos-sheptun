@@ -120,69 +120,38 @@ struct RecordingSettingsView: View {
             
             GroupBox {
                 VStack(spacing: 16) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Test your complete setup")
-                                .font(.subheadline)
-                            Text("Records audio and transcribes it using your selected provider")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Spacer()
-                    }
-                    
-                    Divider()
-                    
-                    HStack {
-                        Button(action: {
-                            if isRecordingTest {
-                                stopTestTranscription()
-                            } else {
-                                startTestTranscription()
-                            }
-                        }) {
-                            HStack {
-                                if isTranscribing {
-                                    ProgressView()
-                                        .scaleEffect(0.8)
-                                } else {
-                                    Image(systemName: isRecordingTest ? "stop.circle" : "mic.badge.plus")
-                                        .symbolVariant(isRecordingTest ? .fill : .none)
-                                }
-                                
-                                Text(isTranscribing ? "Processing..." : 
-                                     isRecordingTest ? "Stop Recording" : "Start Test")
-                            }
-                        }
-                        .controlSize(.large)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isTranscribing || (settings.getCurrentAPIKey().isEmpty && !isRecordingTest))
-                        
+                    Button(action: {
                         if isRecordingTest {
-                            HStack(spacing: 8) {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 8, height: 8)
-                                    .opacity(isRecordingTest ? 1 : 0)
-                                    .animation(.easeInOut(duration: 0.5).repeatForever(), value: isRecordingTest)
-                                
-                                Text("Recording...")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        } else if isTranscribing {
-                            HStack(spacing: 8) {
+                            stopTestTranscription()
+                        } else {
+                            startTestTranscription()
+                        }
+                    }) {
+                        if isTranscribing {
+                            HStack {
                                 ProgressView()
                                     .scaleEffect(0.8)
-                                Text("Transcribing...")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                Text("Processing...")
                             }
+                            .frame(minWidth: 150)
+                        } else if isRecordingTest {
+                            HStack {
+                                Image(systemName: "stop.circle.fill")
+                                Text("Stop")
+                            }
+                            .frame(minWidth: 150)
+                        } else {
+                            HStack {
+                                Image(systemName: "mic.badge.plus")
+                                Text("Test")
+                            }
+                            .frame(minWidth: 150)
                         }
-                        
-                        Spacer()
                     }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isTranscribing || (settings.getCurrentAPIKey().isEmpty && !isRecordingTest))
                     
                     if let result = testResult {
                         TestResultView(result: result)
@@ -199,65 +168,48 @@ struct RecordingSettingsView: View {
                 .font(.headline)
             
             GroupBox {
-                VStack(spacing: 16) {
-                    Toggle("Auto-paste transcription", isOn: $settings.autoPasteTranscription)
-                        .onChange(of: settings.autoPasteTranscription) { _, _ in
-                            settings.saveSettings()
-                        }
-                    
-                    Text("Automatically paste the transcribed text after recording")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding()
+                Toggle("Auto-paste transcription", isOn: $settings.autoPasteTranscription)
+                    .onChange(of: settings.autoPasteTranscription) { _, _ in
+                        settings.saveSettings()
+                    }
+                    .padding(12)
             }
         }
     }
     
     private var languageConfigurationSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Language Settings")
+            Text("Language")
                 .font(.headline)
             
             GroupBox {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Transcription Language")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    Picker("", selection: $settings.transcriptionLanguage) {
-                        Text("Auto-detect").tag("auto")
-                        Text("English").tag("en")
-                        Text("Spanish").tag("es")
-                        Text("French").tag("fr")
-                        Text("German").tag("de")
-                        Text("Italian").tag("it")
-                        Text("Portuguese").tag("pt")
-                        Text("Russian").tag("ru")
-                        Text("Japanese").tag("ja")
-                        Text("Korean").tag("ko")
-                        Text("Chinese (Mandarin)").tag("zh")
-                        Text("Arabic").tag("ar")
-                        Text("Hindi").tag("hi")
-                        Text("Dutch").tag("nl")
-                        Text("Polish").tag("pl")
-                        Text("Swedish").tag("sv")
-                        Text("Norwegian").tag("no")
-                        Text("Danish").tag("da")
-                        Text("Finnish").tag("fi")
-                        Text("Turkish").tag("tr")
-                    }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .onChange(of: settings.transcriptionLanguage) { _, _ in
-                        settings.saveSettings()
-                    }
-                    
-                    Text("Select the language of your audio for better transcription accuracy. Auto-detect works well for most cases.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.top, 4)
+                Picker("", selection: $settings.transcriptionLanguage) {
+                    Text("Auto-detect").tag("auto")
+                    Divider()
+                    Text("English").tag("en")
+                    Text("Spanish").tag("es")
+                    Text("French").tag("fr")
+                    Text("German").tag("de")
+                    Text("Italian").tag("it")
+                    Text("Portuguese").tag("pt")
+                    Text("Russian").tag("ru")
+                    Text("Japanese").tag("ja")
+                    Text("Korean").tag("ko")
+                    Text("Chinese").tag("zh")
+                    Text("Arabic").tag("ar")
+                    Text("Hindi").tag("hi")
+                    Text("Dutch").tag("nl")
+                    Text("Polish").tag("pl")
+                    Text("Swedish").tag("sv")
+                    Text("Norwegian").tag("no")
+                    Text("Danish").tag("da")
+                    Text("Finnish").tag("fi")
+                    Text("Turkish").tag("tr")
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .onChange(of: settings.transcriptionLanguage) { _, _ in
+                    settings.saveSettings()
                 }
                 .padding(12)
             }

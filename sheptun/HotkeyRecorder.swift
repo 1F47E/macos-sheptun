@@ -15,111 +15,67 @@ struct HotkeyRecorder: View {
     private let logger = Logger.shared
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Title bar
-            HStack {
-                Text("Set Hotkey")
-                    .font(.headline)
-                Spacer()
-            }
-            .padding()
-            .background(Color(NSColor.windowBackgroundColor))
-            
-            Divider()
-            
-            // Main content
-            VStack(spacing: 24) {
-                // Current hotkey display
-                if initialKeyCode != 0 {
-                    VStack(spacing: 8) {
-                        Text("Current Hotkey")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        HotkeyDisplayText(keyCode: UInt16(initialKeyCode), modifiers: initialModifiers)
-                            .font(.system(size: 18, weight: .medium, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Divider()
-                }
-                
-                // Instructions
-                Text("Press the key combination you want to use")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                
-                // Large centered hotkey display
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(isRecording ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(isRecording ? Color.accentColor : Color(NSColor.separatorColor), lineWidth: 2)
-                        )
-                    
-                    if displayText.isEmpty {
-                        Text("No new shortcut recorded")
-                            .font(.system(size: 24, weight: .light, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text(displayText)
-                            .font(.system(size: 36, weight: .medium, design: .monospaced))
-                            .foregroundColor(hasChanges ? .accentColor : .primary)
-                    }
-                }
-                .frame(height: 80)
-                .animation(.easeInOut(duration: 0.2), value: isRecording)
-                
-                // Record button
-                Button(action: {
-                    isRecording.toggle()
-                    logger.log("Hotkey recording \(isRecording ? "started" : "stopped")")
-                    if isRecording {
-                        NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
-                            handleKeyEvent(event)
-                            return nil
-                        }
-                    }
-                }) {
-                    Label(
-                        isRecording ? "Recording... Press keys" : "Record New Shortcut",
-                        systemImage: isRecording ? "record.circle.fill" : "keyboard"
+        VStack(spacing: 20) {
+            // Compact hotkey display
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isRecording ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(isRecording ? Color.accentColor : Color(NSColor.separatorColor), lineWidth: 2)
                     )
-                    .frame(minWidth: 200)
-                }
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
-                .disabled(isRecording && hasChanges)
                 
-                // Requirements note
-                Text("Requires ⌘ Command + ⇧ Shift + any key")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                Spacer()
-                
-                // Action buttons
-                HStack(spacing: 16) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    .controlSize(.large)
-                    .keyboardShortcut(.escape)
-                    
-                    Button("Save") {
-                        onSave(keyCode, modifiers)
-                        dismiss()
-                    }
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!hasChanges || keyCode == 0)
+                if displayText.isEmpty {
+                    Text("⌘⇧ + key")
+                        .font(.system(size: 24, weight: .light, design: .monospaced))
+                        .foregroundColor(.secondary)
+                } else {
+                    Text(displayText)
+                        .font(.system(size: 32, weight: .medium, design: .monospaced))
+                        .foregroundColor(hasChanges ? .accentColor : .primary)
                 }
             }
-            .padding(32)
+            .frame(height: 70)
+            .animation(.easeInOut(duration: 0.2), value: isRecording)
+            
+            // Record button
+            Button(action: {
+                isRecording.toggle()
+                logger.log("Hotkey recording \(isRecording ? "started" : "stopped")")
+                if isRecording {
+                    NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+                        handleKeyEvent(event)
+                        return nil
+                    }
+                }
+            }) {
+                if isRecording {
+                    Label("Recording...", systemImage: "record.circle.fill")
+                } else {
+                    Label("Record", systemImage: "keyboard")
+                }
+            }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+            .disabled(isRecording && hasChanges)
+            
+            // Action buttons
+            HStack(spacing: 12) {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.escape)
+                
+                Button("Save") {
+                    onSave(keyCode, modifiers)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!hasChanges || keyCode == 0)
+            }
         }
-        .frame(width: 450, height: 400)
+        .padding(24)
+        .frame(width: 300, height: 220)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             // Initialize with current values

@@ -12,7 +12,7 @@ import Foundation
 import AVFoundation // For AVAudioPlayer later
 
 /// Represents the various states of our floating popup
-enum TranscriberState {
+enum TranscriberState: Equatable {
     case recording
     case transcribing
     case completed(String)
@@ -85,8 +85,12 @@ class PopupWindowManager: NSObject, ObservableObject {
         // Check if a microphone is selected
         if settingsManager.selectedMicrophoneID.isEmpty {
             logger.log("No microphone selected => show error", level: .warning)
-            currentState = .error("No microphone selected. Please select a microphone in Settings.")
+            currentState = .error("No microphone selected")
             showWindowAtMousePointer()
+            // Auto-close after 3 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                self?.closePopup()
+            }
             return
         }
         
@@ -448,6 +452,7 @@ struct TranscriberPopupView: View {
     
     @ObservedObject var manager: PopupWindowManager
     @ObservedObject var audioRecorder = AudioRecorder.shared
+    private let settingsManager = SettingsManager.shared
     
     var body: some View {
         ZStack {
@@ -476,9 +481,17 @@ struct TranscriberPopupView: View {
             // Main content area
             switch manager.currentState {
             case .recording:
-                // Clean audio waveform similar to AudioSettingsView
+                // Clean audio waveform with animation
                 CleanAudioWaveform(audioLevel: audioRecorder.audioLevel)
                     .frame(width: 140, height: 40)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.5, anchor: .center)
+                            .combined(with: .opacity)
+                            .combined(with: .offset(y: 10)),
+                        removal: .scale(scale: 1.2, anchor: .center)
+                            .combined(with: .opacity)
+                    ))
+                    .id("waveform") // Force view recreation for better animation
                 
             case .transcribing:
                 // Simple spinner
@@ -515,13 +528,33 @@ struct TranscriberPopupView: View {
                     .foregroundColor(.red)
             }
             
-            // Status text at bottom
-            statusText
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.7))
-                .padding(.bottom, 8)
+            // Status text with mic name
+            VStack(spacing: 2) {
+                statusText
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+                
+                // Show microphone name when recording
+                if case .recording = manager.currentState {
+                    if let micName = getMicrophoneName() {
+                        Text(micName)
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.5))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
+            .padding(.bottom, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.3), value: manager.currentState)
+    }
+    
+    private func getMicrophoneName() -> String? {
+        guard !settingsManager.selectedMicrophoneID.isEmpty else { return nil }
+        let mics = settingsManager.getAvailableMicrophones()
+        return mics.first(where: { $0.id == settingsManager.selectedMicrophoneID })?.name
     }
     
     @ViewBuilder
@@ -622,6 +655,8 @@ extension TranscriberState {
 struct CleanAudioWaveform: View {
     let audioLevel: Float
     @State private var phase: CGFloat = 0
+    @State private var isVisible = false
+    @State private var barScales: [CGFloat] = Array(repeating: 0, count: 40)
     
     var body: some View {
         GeometryReader { geometry in
@@ -641,23 +676,25 @@ struct CleanAudioWaveform: View {
                 let maxAmplitude: CGFloat = height * 0.4
                 let amplitude = minAmplitude + (maxAmplitude - minAmplitude) * CGFloat(audioLevel)
                 
-                // Draw the wave
-                for x in stride(from: 0, to: width, by: 1) {
+                // Draw the wave with animated visibility
+                let barWidth = width / CGFloat(barScales.count)
+                for (index, scale) in barScales.enumerated() {
+                    let x = CGFloat(index) * barWidth
                     let relativeX = x / width
-                    let y = midY + sin((relativeX * frequency * .pi * 2) + phase) * amplitude
+                    let y = midY + sin((relativeX * frequency * .pi * 2) + phase) * amplitude * scale
                     
-                    if x == 0 {
+                    if index == 0 {
                         path.move(to: CGPoint(x: x, y: y))
                     } else {
                         path.addLine(to: CGPoint(x: x, y: y))
                     }
                 }
                 
-                // Apply gradient stroke
+                // Apply gradient stroke with animated opacity
                 let gradient = Gradient(colors: [
-                    Color.green.opacity(0.8),
-                    Color.green,
-                    Color.green.opacity(0.8)
+                    Color.green.opacity(0.6 * (isVisible ? 1 : 0)),
+                    Color.green.opacity(isVisible ? 1 : 0),
+                    Color.green.opacity(0.6 * (isVisible ? 1 : 0))
                 ])
                 
                 context.stroke(
@@ -672,11 +709,30 @@ struct CleanAudioWaveform: View {
             }
         }
         .onAppear {
-            // Smooth continuous animation
-            withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
-                phase = .pi * 2
+            // Staggered animation for each bar
+            for index in 0..<barScales.count {
+                withAnimation(
+                    .spring(response: 0.4, dampingFraction: 0.6)
+                    .delay(Double(index) * 0.01)
+                ) {
+                    barScales[index] = 1.0
+                }
+            }
+            
+            // Fade in the whole view
+            withAnimation(.easeOut(duration: 0.3)) {
+                isVisible = true
+            }
+            
+            // Start wave animation after appearance
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
+                    phase = .pi * 2
+                }
             }
         }
+        .blur(radius: isVisible ? 0 : 2)
+        .scaleEffect(isVisible ? 1 : 0.8)
     }
 }
 

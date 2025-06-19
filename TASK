@@ -1,0 +1,68 @@
+# Navigation Tab Enhancement Implementation Tasks
+
+## Overview
+Enhance navigation tabs with contextual information and move language settings to be per-provider instead of global.
+
+## Task 1: Enhance TabButton Component in SettingsTabView.swift
+- Add subtitle parameter to TabButton struct
+- Add status indicator support (optional green checkmark)
+- Update TabButton view to display subtitle below title
+- Keep minimalist design with smaller, muted subtitle text
+
+## Task 2: Provider Tab Enhancement
+- Modify ProviderSettingsView to check API key validity on appear
+- Pass current provider info to TabButton:
+  - Title: "Provider"
+  - Subtitle: "OpenAI • EN" (or "Groq • Auto", etc.)
+  - Status: Show green checkmark if API key is valid
+- Update SettingsTabView to compute and pass this information
+
+## Task 3: Audio Tab Enhancement  
+- Pass selected microphone name to TabButton:
+  - Title: "Audio"
+  - Subtitle: Show microphone name or "No mic selected"
+- Update SettingsTabView to get microphone name from SettingsManager
+
+## Task 4: Move Language Setting to Per-Provider Storage
+- Update SettingsManager:
+  - Remove global `transcriptionLanguage` property
+  - Add per-provider language properties:
+    - `openAILanguage: String = "auto"`
+    - `groqLanguage: String = "auto"` 
+    - `deepgramLanguage: String = "auto"`
+  - Add method `getCurrentLanguage() -> String` that returns language for current provider
+  - Update Keys enum and save/load methods
+
+## Task 5: Update Provider Settings UI
+- In ProviderSettingsView:
+  - Remove global languageConfigurationSection
+  - Add language picker inside modelConfigurationSection
+  - Order: Language picker → Model picker
+  - Use compact/inline style for minimalist look
+  - Only show language picker for current provider
+
+## Task 6: Update RecordingSettingsView
+- Remove languageConfigurationSection entirely
+- Language is now configured per-provider, not globally
+
+## Task 7: Update API Calls
+- Update TranscriptionService and AI provider implementations
+- Use SettingsManager.getCurrentLanguage() instead of transcriptionLanguage
+- Ensure each provider passes its specific language setting
+
+## Implementation Notes
+- Keep all UI changes minimalist and hacker-friendly
+- Avoid excessive visual elements
+- Use system fonts and standard spacing
+- Subtitle text should be smaller and secondary color
+- API key validation should be fast and non-blocking
+- Cache validation results to avoid repeated API calls
+
+## Testing Checklist
+- [ ] Tab subtitles update when switching providers
+- [ ] Tab subtitles update when changing microphone
+- [ ] Green checkmark appears for valid API keys
+- [ ] Language settings persist per provider
+- [ ] Switching providers shows correct language
+- [ ] API calls use correct per-provider language
+- [ ] No UI regression in other tabs
