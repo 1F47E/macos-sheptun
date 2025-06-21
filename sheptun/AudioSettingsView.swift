@@ -7,6 +7,7 @@ struct AudioSettingsView: View {
     @State private var audioLevel: Float = 0
     @State private var audioMonitor: AudioLevelMonitor? = nil
     @State private var audioMonitorError: String? = nil
+    @State private var isRefreshing: Bool = false
     
     private let logger = Logger.shared
     
@@ -77,6 +78,18 @@ struct AudioSettingsView: View {
                                 startAudioMonitoring(deviceID: newValue)
                                 logger.log("Selected microphone changed to: \(newValue)", level: .info)
                             }
+                            
+                            Spacer()
+                            
+                            Button(action: refreshMicrophones) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 14))
+                                    .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                                    .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .help("Refresh microphone list")
+                            .disabled(isRefreshing)
                         }
                         .padding()
                         
@@ -225,6 +238,36 @@ struct AudioSettingsView: View {
         audioMonitor = nil
         DispatchQueue.main.async {
             self.audioLevel = 0
+        }
+    }
+    
+    private func refreshMicrophones() {
+        logger.log("Refreshing microphone list", level: .info)
+        isRefreshing = true
+        
+        // Add a small delay to show the animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let newMicrophones = settings.getAvailableMicrophones()
+            availableMicrophones = newMicrophones
+            logger.log("Refreshed microphone list: found \(newMicrophones.count) devices", level: .info)
+            
+            // Check if the currently selected microphone is still available
+            if !newMicrophones.contains(where: { $0.id == settings.selectedMicrophoneID }) {
+                // Current microphone is no longer available, select first available or empty
+                if let firstMic = newMicrophones.first {
+                    settings.selectedMicrophoneID = firstMic.id
+                    settings.saveSettings()
+                    startAudioMonitoring(deviceID: firstMic.id)
+                    logger.log("Previous microphone unavailable, switched to: \(firstMic.name)", level: .warning)
+                } else {
+                    settings.selectedMicrophoneID = ""
+                    settings.saveSettings()
+                    stopAudioMonitoring()
+                    logger.log("No microphones available after refresh", level: .warning)
+                }
+            }
+            
+            isRefreshing = false
         }
     }
 }

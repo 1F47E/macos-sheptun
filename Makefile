@@ -38,7 +38,8 @@ clean:
 	@rm -rf build
 
 # Run the application
-run: build
+#run: build
+run: 
 	@echo "Running $(PROJECT_NAME)..."
 	@killall "$(PROJECT_NAME)" 2>/dev/null || true
 	@open $(BUILD_DIR)/Build/Products/$(CONFIGURATION)/$(PROJECT_NAME).app

@@ -102,6 +102,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Update microphone status on menu open
         menu.delegate = self
         
+        // Microphone selection submenu
+        let microphoneItem = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
+        let microphoneSubmenu = NSMenu()
+        microphoneItem.submenu = microphoneSubmenu
+        menu.addItem(microphoneItem)
+        
+        // Only show permissions item if permissions are not granted
+        if !AXIsProcessTrusted() {
+            menu.addItem(NSMenuItem(title: "Refresh Permissions ⚠️", action: #selector(refreshPermissions), keyEquivalent: ""))
+        }
+        
         // Settings
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(openSettings), keyEquivalent: ","))
         
@@ -269,6 +280,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let audioRecorder = AudioRecorder.shared
         audioRecorder.stopRecording()
     }
+    
+    @objc func refreshPermissions() {
+        logger.log("Refresh permissions triggered", level: .info)
+        
+        let accessibilityEnabled = AXIsProcessTrusted()
+        
+        if accessibilityEnabled {
+            logger.log("Accessibility permissions are granted", level: .info)
+            
+            let alert = NSAlert()
+            alert.messageText = "Permissions Status"
+            alert.informativeText = "Accessibility permissions are enabled ✓"
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        } else {
+            logger.log("Accessibility permissions are NOT granted", level: .warning)
+            
+            let alert = NSAlert()
+            alert.messageText = "Permissions Required"
+            alert.informativeText = "Sheptun needs accessibility permissions to use global hotkeys. Click 'Open Settings' to grant permissions."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open Settings")
+            alert.addButton(withTitle: "Cancel")
+            
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                // Open accessibility settings
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                    NSWorkspace.shared.open(url)
+                    logger.log("Opening accessibility settings", level: .info)
+                }
+            }
+        }
+    }
 }
 
 // Helper extension to get RGB components from UIColor
@@ -306,5 +352,96 @@ extension AppDelegate: NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         // Update microphone status when menu opens
         updateStatusBarIcon()
+        
+        // Rebuild menu to update permissions item visibility
+        setupMenu()
+        
+        // Update microphone submenu
+        updateMicrophoneSubmenu()
+    }
+    
+    private func updateMicrophoneSubmenu() {
+        logger.log("Updating microphone submenu", level: .debug)
+        
+        // Find the microphone menu item
+        guard let microphoneItem = statusItem.menu?.items.first(where: { $0.title == "Microphone" }),
+              let submenu = microphoneItem.submenu else {
+            logger.log("Could not find microphone submenu", level: .error)
+            return
+        }
+        
+        // Clear existing items
+        submenu.removeAllItems()
+        
+        // Get available microphones
+        let microphones = settings.getAvailableMicrophones()
+        
+        if microphones.isEmpty {
+            let noMicItem = NSMenuItem(title: "No microphones available", action: nil, keyEquivalent: "")
+            noMicItem.isEnabled = false
+            submenu.addItem(noMicItem)
+        } else {
+            // Add header if there's a selected microphone
+            if !settings.selectedMicrophoneID.isEmpty,
+               let currentMic = microphones.first(where: { $0.id == settings.selectedMicrophoneID }) {
+                let headerItem = NSMenuItem(title: "Current: \(currentMic.name)", action: nil, keyEquivalent: "")
+                headerItem.isEnabled = false
+                submenu.addItem(headerItem)
+                submenu.addItem(NSMenuItem.separator())
+            }
+            
+            // Add each microphone
+            for mic in microphones {
+                let micItem = NSMenuItem(
+                    title: mic.name,
+                    action: #selector(selectMicrophone(_:)),
+                    keyEquivalent: ""
+                )
+                micItem.target = self
+                micItem.representedObject = mic.id
+                
+                // Add checkmark to selected microphone
+                if mic.id == settings.selectedMicrophoneID {
+                    micItem.state = .on
+                }
+                
+                submenu.addItem(micItem)
+            }
+        }
+        
+        // Add separator and refresh option
+        submenu.addItem(NSMenuItem.separator())
+        let refreshItem = NSMenuItem(
+            title: "Refresh Microphones",
+            action: #selector(refreshMicrophonesFromMenu),
+            keyEquivalent: ""
+        )
+        refreshItem.target = self
+        submenu.addItem(refreshItem)
+        
+        logger.log("Microphone submenu updated with \(microphones.count) devices", level: .debug)
+    }
+    
+    @objc private func selectMicrophone(_ sender: NSMenuItem) {
+        guard let microphoneID = sender.representedObject as? String else {
+            logger.log("Failed to get microphone ID from menu item", level: .error)
+            return
+        }
+        
+        logger.log("Selecting microphone from menu: \(microphoneID)", level: .info)
+        settings.selectedMicrophoneID = microphoneID
+        settings.saveSettings()
+        
+        // Update the menu to reflect the new selection
+        updateMicrophoneSubmenu()
+    }
+    
+    @objc private func refreshMicrophonesFromMenu() {
+        logger.log("Refreshing microphones from menu", level: .info)
+        
+        // Force update of available microphones and menu
+        checkForAvailableMicrophones()
+        updateStatusBarIcon()
+        updateMicrophoneSubmenu()
     }
 }
